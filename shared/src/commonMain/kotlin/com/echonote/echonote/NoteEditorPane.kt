@@ -1,0 +1,224 @@
+package com.echonote.echonote
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.echonote.echonote.model.Note
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun NoteEditorPane(
+    state: NotesUiState,
+    onContentChange: (String, String) -> Unit,
+    onTitleChange: (String, String) -> Unit,
+    onExpand: () -> Unit,
+    onCondense: () -> Unit,
+    onUndo: () -> Unit,
+    onStop: () -> Unit,
+    onDismissError: () -> Unit,
+    modifier: Modifier = Modifier,
+    onBack: (() -> Unit)? = null,
+    /** false: mobil tam ekran sayfa — dış cam çerçeve yok, cam efekti butonlarda kalır. */
+    framed: Boolean = true,
+) {
+    val container = if (framed) Modifier.glass(RoundedCornerShape(24.dp)) else Modifier
+
+    val note = state.selectedNote
+    if (note == null) {
+        Box(modifier.fillMaxSize().then(container), contentAlignment = Alignment.Center) {
+            Text("Bir not seç", color = EchoColors.TextSecondary)
+        }
+        return
+    }
+
+    val isStreamingHere = state.isStreamingSelected
+    val isStreamingAnywhere = state.streamingNoteId != null
+
+    Column(modifier.fillMaxSize().then(container).padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (onBack != null) {
+                GlassButton(
+                    text = "←",
+                    onClick = onBack,
+                    accent = EchoColors.TextPrimary,
+                    modifier = Modifier.padding(end = 10.dp),
+                )
+            }
+            BasicTextField(
+                value = note.title,
+                onValueChange = { onTitleChange(note.id, it) },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = EchoColors.TextPrimary,
+                ),
+                cursorBrush = SolidColor(EchoColors.NeonCyan),
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        // FlowRow: butonlar yataya sığmazsa ezilmek yerine alt satıra akar (mobil).
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        ) {
+            GlassButton(
+                text = "✨ AI Genişlet",
+                onClick = onExpand,
+                accent = EchoColors.NeonCyan,
+                enabled = !isStreamingAnywhere,
+            )
+            GlassButton(
+                text = "AI Özetle",
+                onClick = onCondense,
+                accent = EchoColors.NeonLavender,
+                enabled = !isStreamingAnywhere,
+            )
+            if (isStreamingHere) {
+                GlassButton(text = "Durdur", onClick = onStop, accent = EchoColors.NeonRose)
+            } else {
+                GlassButton(
+                    text = "↩ Geri Al",
+                    onClick = onUndo,
+                    accent = EchoColors.NeonMint,
+                    enabled = state.canUndo,
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = isStreamingHere,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            StreamingBanner()
+        }
+
+        AnimatedVisibility(
+            visible = state.errorMessage != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            ErrorBanner(message = state.errorMessage.orEmpty(), onDismiss = onDismissError)
+        }
+
+        HorizontalDivider(
+            color = EchoColors.GlassBorder,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+
+        MarkdownEditor(
+            note = note,
+            readOnly = isStreamingHere,
+            onContentChange = onContentChange,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun MarkdownEditor(
+    note: Note,
+    readOnly: Boolean,
+    onContentChange: (String, String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val markdownTransformation = remember { MarkdownTransformation(echoMarkdownColors()) }
+
+    BasicTextField(
+        value = note.content,
+        onValueChange = { onContentChange(note.id, it) },
+        readOnly = readOnly,
+        visualTransformation = markdownTransformation,
+        textStyle = TextStyle(
+            fontSize = 15.sp,
+            lineHeight = 24.sp,
+            color = EchoColors.TextPrimary,
+        ),
+        cursorBrush = SolidColor(EchoColors.NeonCyan),
+        modifier = modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
+    )
+}
+
+@Composable
+private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 12.dp)
+            .glass(shape = RoundedCornerShape(16.dp), fill = EchoColors.NeonRose.copy(alpha = 0.10f))
+            .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = EchoColors.NeonRose,
+            modifier = Modifier.weight(1f),
+        )
+        GlassButton(text = "Kapat", onClick = onDismiss, accent = EchoColors.NeonRose)
+    }
+}
+
+@Composable
+private fun StreamingBanner() {
+    val transition = rememberInfiniteTransition(label = "streaming")
+    val alpha by transition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
+        label = "streamingAlpha",
+    )
+    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+        Text(
+            text = "▍AI yazıyor…",
+            style = MaterialTheme.typography.labelMedium,
+            color = EchoColors.NeonCyan,
+            modifier = Modifier.alpha(alpha).padding(bottom = 4.dp),
+        )
+        LinearProgressIndicator(
+            color = EchoColors.NeonCyan,
+            trackColor = Color.White.copy(alpha = 0.08f),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
