@@ -1,5 +1,6 @@
 package com.echonote.echonote
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,8 @@ fun SettingsSheet(
     accountEmail: String?,
     geminiApiKey: String,
     onGeminiApiKeyChange: (String) -> Unit,
+    trashCount: Int,
+    onOpenTrash: () -> Unit,
     onSignOut: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -47,6 +50,9 @@ fun SettingsSheet(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = modifier
             .fillMaxWidth()
+            // Cam katman %5 opak: tek basina altindaki liste icinden gecer ve panel
+            // okunmaz olur. Once koyu bir zemin, sonra cam.
+            .background(EchoColors.SpaceBlack.copy(alpha = 0.94f), RoundedCornerShape(24.dp))
             .glass(RoundedCornerShape(24.dp))
             .imePadding()
             .padding(20.dp),
@@ -88,6 +94,10 @@ fun SettingsSheet(
                 color = EchoColors.TextSecondary.copy(alpha = 0.7f),
             )
         }
+
+        HorizontalDivider(color = EchoColors.GlassBorder)
+
+        TrashEntryRow(count = trashCount, onOpen = onOpenTrash)
 
         HorizontalDivider(color = EchoColors.GlassBorder)
 

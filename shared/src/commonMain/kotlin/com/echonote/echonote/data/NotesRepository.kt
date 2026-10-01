@@ -28,8 +28,11 @@ data class SyncState(
  */
 interface NotesRepository {
 
-    /** Yerel depodan beslenen liste; ağı hiç beklemez. */
+    /** Yerel depodan beslenen liste; ağı hiç beklemez. Çöptekiler dahil değildir. */
     fun observeNotes(): Flow<List<Note>>
+
+    /** Çöp kutusundaki notlar (silinme zamanına göre yeniden eskiye). */
+    fun observeTrash(): Flow<List<Note>>
 
     fun observeSyncState(): Flow<SyncState>
 
@@ -39,7 +42,13 @@ interface NotesRepository {
     /** Oluşturma ve güncelleme aynı yol: yerel yazma + senkron kuyruğuna alma. */
     fun saveNote(note: Note)
 
+    /** Çöp kutusuna taşır. Geri alınabilir ve iki cihazda da çöpte görünür. */
     fun deleteNote(id: String)
+
+    fun restoreNote(id: String)
+
+    /** Kalıcı silme: uzaktan da gerçekten siler, geri dönüşü yoktur. */
+    fun deleteForever(id: String)
 
     /** Bekleyen senkronu uzağa göndermeyi dener (kapanış kancası). */
     suspend fun flushOutbox()

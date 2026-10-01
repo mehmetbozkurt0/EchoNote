@@ -120,14 +120,20 @@ class NotesViewModelTest {
     }
 
     @Test
-    fun silmeDepoyaIletilirVeSecimBirakilir() = runTest(dispatcher) {
+    fun silmeOnayIsterVeOnaydanSonraCopeGider() = runTest(dispatcher) {
         val repo = FakeNotesRepository()
         val vm = viewModel(repo)
         repo.emitNotes(listOf(note("a")))
         advanceUntilIdle()
         vm.selectNote("a")
 
-        vm.deleteNote("a")
+        // Silme artık önce onay ister.
+        vm.requestDelete("a")
+        runCurrent()
+        assertEquals("a", vm.uiState.value.pendingDeleteNoteId)
+        assertTrue(repo.deleted.isEmpty(), "Onay verilmeden silinmemeli")
+
+        vm.confirmDelete()
         runCurrent()
 
         assertContentEquals(listOf("a"), repo.deleted)

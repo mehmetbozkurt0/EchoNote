@@ -27,6 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +51,7 @@ fun NoteEditorPane(
     onCondense: () -> Unit,
     onUndo: () -> Unit,
     onStop: () -> Unit,
+    onToggleTask: (Int) -> Unit,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     /** false: mobil tam ekran sayfa — dış cam çerçeve yok, cam efekti butonlarda kalır. */
@@ -66,6 +70,8 @@ fun NoteEditorPane(
 
     val isStreamingHere = state.isStreamingSelected
     val isStreamingAnywhere = state.streamingNoteId != null
+    // Mod korunur: okuma modundayken ekran döndürmek seni editöre atmasın.
+    var readMode by rememberSaveable { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize().then(container).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -108,6 +114,11 @@ fun NoteEditorPane(
                 accent = EchoColors.NeonLavender,
                 enabled = !isStreamingAnywhere,
             )
+            GlassButton(
+                text = if (readMode) "✎ Düzenle" else "👁 Oku",
+                onClick = { readMode = !readMode },
+                accent = EchoColors.TextPrimary,
+            )
             if (isStreamingHere) {
                 GlassButton(text = "Durdur", onClick = onStop, accent = EchoColors.NeonRose)
             } else {
@@ -133,12 +144,20 @@ fun NoteEditorPane(
             modifier = Modifier.padding(bottom = 12.dp),
         )
 
-        MarkdownEditor(
-            content = state.editorContent,
-            readOnly = isStreamingHere,
-            onContentChange = onContentChange,
-            modifier = Modifier.weight(1f),
-        )
+        if (readMode && !isStreamingHere) {
+            MarkdownView(
+                content = state.editorContent,
+                onToggleTask = onToggleTask,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            MarkdownEditor(
+                content = state.editorContent,
+                readOnly = isStreamingHere,
+                onContentChange = onContentChange,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 

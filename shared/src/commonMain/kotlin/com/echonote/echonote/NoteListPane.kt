@@ -23,12 +23,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -45,9 +48,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.echonote.echonote.model.Note
 
 @Composable
@@ -57,6 +63,7 @@ fun NoteListPane(
     onCreate: () -> Unit,
     onDelete: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onSearchChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     /** false: mobil tam ekran sayfa — dış cam çerçeve yok, cam efekti kartlarda kalır. */
     framed: Boolean = true,
@@ -89,17 +96,83 @@ fun NoteListPane(
                 )
             }
         }
+        SearchField(
+            query = state.searchQuery,
+            onQueryChange = onSearchChange,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+
+        if (state.isSearching && state.visibleNotes.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "\"${state.searchQuery}\" için sonuç yok",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = EchoColors.TextSecondary,
+                )
+            }
+            return@Column
+        }
+
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(state.notes, key = { it.id }) { note ->
+            items(state.visibleNotes, key = { it.id }) { note ->
                 NoteListItem(
                     note = note,
                     selected = note.id == state.selectedNoteId,
                     streaming = note.id == state.streamingNoteId,
                     onClick = { onSelect(note.id) },
                     onDelete = { onDelete(note.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .glass(RoundedCornerShape(14.dp))
+            .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            tint = EchoColors.TextSecondary,
+            modifier = Modifier.size(18.dp).padding(end = 2.dp),
+        )
+        Box(Modifier.weight(1f).padding(start = 8.dp)) {
+            if (query.isEmpty()) {
+                Text(
+                    text = "Notlarda ara",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = EchoColors.TextSecondary.copy(alpha = 0.7f),
+                )
+            }
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                singleLine = true,
+                textStyle = TextStyle(color = EchoColors.TextPrimary, fontSize = 15.sp),
+                cursorBrush = SolidColor(EchoColors.NeonCyan),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (query.isNotEmpty()) {
+            IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Aramayı temizle",
+                    tint = EchoColors.TextSecondary,
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }

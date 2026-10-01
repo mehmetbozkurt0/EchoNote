@@ -34,6 +34,28 @@ class NotesLocalStore(
     fun observeVisible(): Flow<List<Note>> =
         queries.selectVisible().asFlow().mapToList(dispatcher).map { rows -> rows.map(DbNote::toDomain) }
 
+    /**
+     * Çöp kutusu listesi.
+     *
+     * Kendi mapper'ı var: `deleted_at IS NOT NULL` koşulu yüzünden SQLDelight bu sorgu
+     * için ayrı bir satır tipi üretiyor (orada kolon non-null çıkarımı yapıyor). Domain
+     * tipine doğrudan çevirerek o ara tipi hiç kullanmıyoruz.
+     */
+    fun observeTrashed(): Flow<List<Note>> =
+        queries.selectTrashed { id, title, content, updatedAt, deviceId, _, _, deletedAt ->
+            Note(
+                id = id,
+                title = title,
+                content = content,
+                updatedAt = updatedAt,
+                deviceId = deviceId,
+                deletedAt = deletedAt,
+            )
+        }.asFlow().mapToList(dispatcher)
+
+    fun observeTrashedCount(): Flow<Long> =
+        queries.countTrashed().asFlow().mapToOneOrNull(dispatcher).map { it ?: 0L }
+
     /** Outbox'ta bekleyen iş sayısı; UI'daki senkron göstergesini besler. */
     fun observePendingPushCount(): Flow<Long> =
         queries.countPendingPush().asFlow().mapToOneOrNull(dispatcher).map { it ?: 0L }
@@ -76,6 +98,7 @@ class NotesLocalStore(
                     device_id = note.deviceId,
                     dirty = true,
                     pending_delete = false,
+                    deleted_at = note.deletedAt,
                 )
             } else {
                 queries.updateNoteRow(
@@ -84,6 +107,7 @@ class NotesLocalStore(
                     updated_at = note.updatedAt,
                     device_id = note.deviceId,
                     dirty = true,
+                    deleted_at = note.deletedAt,
                     id = note.id,
                 )
             }
@@ -118,6 +142,7 @@ class NotesLocalStore(
                     device_id = note.deviceId,
                     dirty = false,
                     pending_delete = false,
+                    deleted_at = note.deletedAt,
                 )
                 true -> queries.updateNoteRow(
                     title = note.title,
@@ -125,11 +150,30 @@ class NotesLocalStore(
                     updated_at = note.updatedAt,
                     device_id = note.deviceId,
                     dirty = false,
+                    deleted_at = note.deletedAt,
                     id = note.id,
                 )
                 false -> Unit // yerel kazandı
             }
         }
+    }
+
+    /**
+     * Çöp kutusuna taşır. Satır silinmez, `deleted_at` damgalanır ve kirli işaretlenir —
+     * normal bir alan gibi senkronlanır, yani diğer cihazda da çöpte görünür.
+     */
+    suspend fun moveToTrash(id: String, deletedAt: String, updatedAt: String): Unit =
+        withContext(dispatcher) {
+            queries.moveToTrash(deleted_at = deletedAt, updated_at = updatedAt, id = id)
+        }
+
+    suspend fun restoreFromTrash(id: String, updatedAt: String): Unit = withContext(dispatcher) {
+        queries.restoreFromTrash(updated_at = updatedAt, id = id)
+    }
+
+    /** Çöpte [before] tarihinden eski notların kimlikleri (otomatik temizlik için). */
+    suspend fun trashedBefore(before: String): List<String> = withContext(dispatcher) {
+        queries.selectTrashedBefore(before).executeAsList()
     }
 
     /** Silmeyi tombstone olarak kaydeder; uzak onay gelince [deleteHard] çağrılır. */
@@ -180,4 +224,5 @@ private fun DbNote.toDomain() = Note(
     content = content,
     updatedAt = updated_at,
     deviceId = device_id,
+    deletedAt = deleted_at,
 )

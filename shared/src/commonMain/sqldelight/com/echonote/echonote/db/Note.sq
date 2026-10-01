@@ -14,16 +14,31 @@ CREATE TABLE note (
     updated_at     TEXT NOT NULL,
     device_id      TEXT NOT NULL,
     dirty          INTEGER AS kotlin.Boolean NOT NULL DEFAULT 0,
-    pending_delete INTEGER AS kotlin.Boolean NOT NULL DEFAULT 0
+    pending_delete INTEGER AS kotlin.Boolean NOT NULL DEFAULT 0,
+    -- Dolu ise not COP KUTUSUNDA. pending_delete'ten farki: bu normal bir alan gibi
+    -- SENKRONLANIR, yani cop kutusu iki cihazda da ayni gorunur. pending_delete ise
+    -- kalici silmenin outbox tombstone'u olarak kaliyor.
+    deleted_at     TEXT
 );
 
 CREATE INDEX note_updated_at ON note(updated_at DESC);
 
 -- --- Okuma ---
 
--- UI'ın gördüğü liste: tombstone'lar görünmez.
+-- UI'ın gördüğü liste: tombstone'lar ve çöp kutusundakiler görünmez.
 selectVisible:
-SELECT * FROM note WHERE pending_delete = 0 ORDER BY updated_at DESC;
+SELECT * FROM note WHERE pending_delete = 0 AND deleted_at IS NULL ORDER BY updated_at DESC;
+
+-- Çöp kutusu: silinme zamanına göre yeniden eskiye.
+selectTrashed:
+SELECT * FROM note WHERE pending_delete = 0 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC;
+
+countTrashed:
+SELECT count(*) FROM note WHERE pending_delete = 0 AND deleted_at IS NOT NULL;
+
+-- Otomatik temizlik adaylari: cop kutusunda verilen tarihten eski olanlar.
+selectTrashedBefore:
+SELECT id FROM note WHERE deleted_at IS NOT NULL AND deleted_at < ?;
 
 selectById:
 SELECT * FROM note WHERE id = ?;
@@ -43,14 +58,23 @@ SELECT count(*) FROM note WHERE dirty = 1 OR pending_delete = 1;
 -- --- Yazma ---
 
 insertNote:
-INSERT INTO note(id, title, content, updated_at, device_id, dirty, pending_delete)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO note(id, title, content, updated_at, device_id, dirty, pending_delete, deleted_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 updateNoteRow:
 UPDATE note
-SET title = ?, content = ?, updated_at = ?, device_id = ?, dirty = ?
+SET title = ?, content = ?, updated_at = ?, device_id = ?, dirty = ?, deleted_at = ?
 WHERE id = ?;
 
+-- Cop kutusuna tasima / geri alma. Ikisi de satiri KIRLI isaretler: deleted_at normal
+-- bir alan gibi senkronlanir, boylece cop kutusu iki cihazda da ayni gorunur.
+moveToTrash:
+UPDATE note SET deleted_at = ?, updated_at = ?, dirty = 1 WHERE id = ?;
+
+restoreFromTrash:
+UPDATE note SET deleted_at = NULL, updated_at = ?, dirty = 1 WHERE id = ?;
+
+-- Kalici silme: uzaga silme emri gondermek icin tombstone.
 markPendingDelete:
 UPDATE note SET pending_delete = 1 WHERE id = ?;
 

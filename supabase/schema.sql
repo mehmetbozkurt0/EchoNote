@@ -125,6 +125,29 @@ where schemaname = 'public' and tablename = 'notes' order by policyname;
 
 
 -- ---------------------------------------------------------------------------
+-- AŞAMA 6 — Çöp kutusu (geri alınabilir silme)
+-- ---------------------------------------------------------------------------
+-- Silme artık satırı yok etmiyor: deleted_at damgalanıyor ve normal bir alan gibi
+-- senkronlanıyor, böylece çöp kutusu iki cihazda da aynı görünüyor ve geri alınabiliyor.
+-- Kalıcı silme ayrı bir yol: istemci gerçek DELETE gönderiyor.
+--
+-- DİKKAT: Bu kolon eklenmeden çöp kutusu olan istemci sürümü kurulursa, her yazma
+-- "bilinmeyen kolon" hatası alır ve senkron durur. ÖNCE bunu çalıştır, SONRA kur.
+
+alter table public.notes add column if not exists deleted_at timestamptz;
+
+-- Çöp kutusu sorguları silinme zamanına göre sıralanıyor.
+create index if not exists notes_deleted_at_idx on public.notes (deleted_at);
+
+-- Kontrol: kolon geldi mi, mevcut notların hiçbiri çöpe düşmedi mi (ikisi de 0 dönmeli
+-- değil; cope_dusen 0 olmali, kolon_var 1 olmali):
+select
+    (select count(*) from information_schema.columns
+       where table_schema='public' and table_name='notes' and column_name='deleted_at') as kolon_var,
+    (select count(*) from public.notes where deleted_at is not null) as cope_dusen;
+
+
+-- ---------------------------------------------------------------------------
 -- GERİ ALMA (bir şey ters giderse)
 -- ---------------------------------------------------------------------------
 -- RLS'i kapatmak tüm erişimi eski hâline döndürür; veri kaybı olmaz:

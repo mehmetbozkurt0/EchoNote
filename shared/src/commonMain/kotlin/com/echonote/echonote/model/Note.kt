@@ -21,7 +21,15 @@ data class Note(
     val content: String,
     @SerialName("updated_at") val updatedAt: String,
     @SerialName("device_id") val deviceId: String,
-)
+    /**
+     * Dolu ise not çöp kutusunda. Normal bir alan gibi senkronlanır: silme iki cihazda
+     * da "çöpe taşındı" olarak görünür ve geri alınabilir. Kalıcı silme bundan ayrı bir
+     * yol (yerel `pending_delete` tombstone'u → uzaktan gerçek DELETE).
+     */
+    @SerialName("deleted_at") val deletedAt: String? = null,
+) {
+    val isTrashed: Boolean get() = deletedAt != null
+}
 
 @OptIn(ExperimentalUuidApi::class)
 fun newNoteId(): String = Uuid.random().toString()

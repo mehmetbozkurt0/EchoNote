@@ -8,6 +8,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -25,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -128,6 +131,47 @@ private fun BoxScope.NotesApp(
         )
     }
 
+    // Panel açıkken arkadaki listeye dokunuş geçmesin; boşluğa dokunmak kapatsın.
+    if (settingsOpen || state.trashOpen) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(EchoColors.SpaceBlack.copy(alpha = 0.55f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) {
+                    settingsOpen = false
+                    viewModel.closeTrash()
+                }
+        )
+    }
+
+    state.pendingDeleteNote?.let { note ->
+        DeleteConfirmDialog(
+            note = note,
+            onConfirm = viewModel::confirmDelete,
+            onDismiss = viewModel::cancelDelete,
+        )
+    }
+
+    AnimatedVisibility(
+        visible = state.trashOpen,
+        enter = fadeIn() + slideInVertically { it },
+        exit = fadeOut() + slideOutVertically { it },
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(16.dp),
+    ) {
+        TrashSheet(
+            trashed = state.trashedNotes,
+            onRestore = viewModel::restoreFromTrash,
+            onDeleteForever = viewModel::deleteForever,
+            onClose = viewModel::closeTrash,
+        )
+    }
+
     AnimatedVisibility(
         visible = settingsOpen,
         enter = fadeIn() + slideInVertically { it },
@@ -141,6 +185,11 @@ private fun BoxScope.NotesApp(
             accountEmail = accountEmail,
             geminiApiKey = geminiKey,
             onGeminiApiKeyChange = AppServices.settings::setGeminiApiKey,
+            trashCount = state.trashedNotes.size,
+            onOpenTrash = {
+                settingsOpen = false
+                viewModel.openTrash()
+            },
             onSignOut = {
                 settingsOpen = false
                 onSignOut()
@@ -168,8 +217,9 @@ private fun ExpandedLayout(
             state = state,
             onSelect = viewModel::selectNote,
             onCreate = viewModel::createNote,
-            onDelete = viewModel::deleteNote,
+            onDelete = viewModel::requestDelete,
             onOpenSettings = onOpenSettings,
+            onSearchChange = viewModel::updateSearchQuery,
             modifier = Modifier.width(340.dp).fillMaxHeight(),
         )
         NoteEditorPane(
@@ -180,6 +230,7 @@ private fun ExpandedLayout(
             onCondense = viewModel::condenseSelected,
             onUndo = viewModel::undoSelected,
             onStop = viewModel::stopStreaming,
+            onToggleTask = viewModel::toggleTask,
             modifier = Modifier.weight(1f).fillMaxHeight(),
         )
     }
@@ -207,8 +258,9 @@ private fun CompactLayout(
             viewModel.createNote()
             editorOpen = true
         },
-        onDelete = viewModel::deleteNote,
+        onDelete = viewModel::requestDelete,
         onOpenSettings = onOpenSettings,
+        onSearchChange = viewModel::updateSearchQuery,
         framed = false,
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
     )
@@ -229,6 +281,7 @@ private fun CompactLayout(
                 onCondense = viewModel::condenseSelected,
                 onUndo = viewModel::undoSelected,
                 onStop = viewModel::stopStreaming,
+                onToggleTask = viewModel::toggleTask,
                 onBack = { editorOpen = false },
                 framed = false,
                 modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),

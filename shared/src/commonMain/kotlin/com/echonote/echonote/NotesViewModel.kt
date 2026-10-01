@@ -24,6 +24,12 @@ import kotlinx.coroutines.launch
 data class NotesUiState(
     /** Yerel depodan türetilir; sıralama ve birleştirme veri katmanında yapılmıştır. */
     val notes: List<Note> = emptyList(),
+    val searchQuery: String = "",
+    /** Çöp kutusundaki notlar; ana listede görünmezler. */
+    val trashedNotes: List<Note> = emptyList(),
+    /** Silme onayı bekleyen notun kimliği; null ise diyalog kapalı. */
+    val pendingDeleteNoteId: String? = null,
+    val trashOpen: Boolean = false,
     val selectedNoteId: String? = null,
     /**
      * Editörün metni. Liste DB'den türetilirken editör VM'e aittir: her tuş vuruşunu
@@ -38,8 +44,46 @@ data class NotesUiState(
     val sync: SyncState = SyncState(),
     val errorMessage: String? = null,
 ) {
+    /**
+     * Listede gösterilecek notlar. `val` olarak hesaplanır (get() değil): sorgu ya da
+     * liste değişmedikçe yeniden hesaplanmaz, her recomposition'da filtre koşmaz.
+     */
+    val visibleNotes: List<Note> = if (searchQuery.isBlank()) {
+        notes
+    } else {
+        val key = searchQuery.searchKey()
+        notes.filter { it.title.searchKey().contains(key) || it.content.searchKey().contains(key) }
+    }
+
     val hasSelection: Boolean get() = selectedNoteId != null
     val isStreamingSelected: Boolean get() = streamingNoteId != null && streamingNoteId == selectedNoteId
+    val isSearching: Boolean get() = searchQuery.isNotBlank()
+    val pendingDeleteNote: Note? get() = notes.firstOrNull { it.id == pendingDeleteNoteId }
+}
+
+/**
+ * Arama için normalleştirme: küçük harfe indirir ve Türkçe harfleri ASCII karşılığına
+ * eşler. Böylece "sok" yazınca "şök" de bulunur ve SQLite `LIKE`'ın Türkçe'de yanlış
+ * eşleşen büyük/küçük harf kuralına hiç bulaşmayız.
+ *
+ * Filtreleme bilinçli olarak Kotlin tarafında: notların tamamı zaten bellekte ve bu
+ * ölçekte (yüzlerce not) maliyet mikrosaniyeler. Binlerce nota çıkılırsa SQLite FTS5'e
+ * taşınmalı.
+ */
+internal fun String.searchKey(): String = buildString(length) {
+    for (ch in this@searchKey) {
+        append(
+            when (ch) {
+                'ı', 'I', 'İ', 'i' -> 'i'
+                'ş', 'Ş' -> 's'
+                'ğ', 'Ğ' -> 'g'
+                'ü', 'Ü' -> 'u'
+                'ö', 'Ö' -> 'o'
+                'ç', 'Ç' -> 'c'
+                else -> ch.lowercaseChar()
+            }
+        )
+    }
 }
 
 class NotesViewModel(
@@ -61,6 +105,11 @@ class NotesViewModel(
     init {
         viewModelScope.launch {
             repository.observeNotes().collect(::onNotesFromStore)
+        }
+        viewModelScope.launch {
+            repository.observeTrash().collect { trashed ->
+                _uiState.update { it.copy(trashedNotes = trashed) }
+            }
         }
         viewModelScope.launch {
             repository.observeSyncState().collect { sync -> _uiState.update { it.copy(sync = sync) } }
@@ -97,7 +146,31 @@ class NotesViewModel(
         openInEditor(note)
     }
 
-    fun deleteNote(id: String) {
+    /** Silme onayı ister; asıl silme [confirmDelete] ile olur. */
+    fun requestDelete(id: String) {
+        _uiState.update { it.copy(pendingDeleteNoteId = id) }
+    }
+
+    fun cancelDelete() {
+        _uiState.update { it.copy(pendingDeleteNoteId = null) }
+    }
+
+    fun confirmDelete() {
+        val id = _uiState.value.pendingDeleteNoteId ?: return
+        _uiState.update { it.copy(pendingDeleteNoteId = null) }
+        moveToTrash(id)
+    }
+
+    fun openTrash() = _uiState.update { it.copy(trashOpen = true) }
+
+    fun closeTrash() = _uiState.update { it.copy(trashOpen = false) }
+
+    fun restoreFromTrash(id: String) = repository.restoreNote(id)
+
+    /** Geri dönüşü yok: hem yerelden hem uzaktan kalıcı siler. */
+    fun deleteForever(id: String) = repository.deleteForever(id)
+
+    private fun moveToTrash(id: String) {
         if (_uiState.value.streamingNoteId == id) stopStreaming()
         undoStacks.remove(id)
         repository.deleteNote(id)
@@ -115,6 +188,16 @@ class NotesViewModel(
         // AI aynı nota yazarken kullanıcı düzenlemesi yok sayılır (editör zaten readOnly).
         if (state.streamingNoteId == noteId) return
         _uiState.update { it.copy(editorContent = newContent) }
+        persistEditor()
+    }
+
+    /** Okuma modunda bir görev kutusuna dokunuldu: ham metni yeniden yazar. */
+    fun toggleTask(lineIndex: Int) {
+        val state = _uiState.value
+        if (state.selectedNoteId == null || state.streamingNoteId != null) return
+        val updated = toggleTask(state.editorContent, lineIndex)
+        if (updated == state.editorContent) return
+        _uiState.update { it.copy(editorContent = updated) }
         persistEditor()
     }
 
@@ -140,6 +223,18 @@ class NotesViewModel(
         val previous = undoStacks[noteId]?.removeLastOrNull() ?: return
         _uiState.update { it.copy(editorContent = previous, canUndo = canUndoFor(noteId)) }
         persistEditor()
+    }
+
+    /**
+     * Arama yalnızca listeyi filtreler; seçimi ve editörü etkilemez. Aranan sorgu
+     * seçili notu gizlese bile editör açık kalır — yazarken arama yapmak notu kapatmaz.
+     */
+    fun updateSearchQuery(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+    }
+
+    fun clearSearch() {
+        _uiState.update { it.copy(searchQuery = "") }
     }
 
     fun dismissError() {

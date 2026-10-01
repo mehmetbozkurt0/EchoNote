@@ -20,10 +20,13 @@ class FakeNotesRepository : NotesRepository {
 
     private val notes = MutableStateFlow<List<Note>>(emptyList())
     private val sync = MutableStateFlow(SyncState())
+    private val trash = MutableStateFlow<List<Note>>(emptyList())
     private val errors = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
     val saved = mutableListOf<Note>()
     val deleted = mutableListOf<String>()
+    val restored = mutableListOf<String>()
+    val deletedForever = mutableListOf<String>()
     var flushCount = 0
         private set
 
@@ -47,8 +50,22 @@ class FakeNotesRepository : NotesRepository {
         saved += note
     }
 
+    override fun observeTrash(): Flow<List<Note>> = trash.asStateFlow()
+
+    fun emitTrash(list: List<Note>) {
+        trash.value = list
+    }
+
     override fun deleteNote(id: String) {
         deleted += id
+    }
+
+    override fun restoreNote(id: String) {
+        restored += id
+    }
+
+    override fun deleteForever(id: String) {
+        deletedForever += id
     }
 
     override suspend fun flushOutbox() {

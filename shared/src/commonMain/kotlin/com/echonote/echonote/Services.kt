@@ -57,10 +57,19 @@ object AppServices {
                 supabaseUrl = Secrets.SUPABASE_URL,
                 supabaseKey = Secrets.SUPABASE_ANON_KEY,
             ) {
-                // notes tablosuna user_id kolonu eklendi ama Note modelinde böyle bir
-                // alan yok; bu ayar olmadan selectAsFlow'un döndürdüğü satırlar
-                // çözümlenirken çalışma zamanında patlar.
-                defaultSerializer = KotlinXSerializer(Json { ignoreUnknownKeys = true })
+                defaultSerializer = KotlinXSerializer(
+                    Json {
+                        // notes tablosuna user_id kolonu eklendi ama Note modelinde böyle
+                        // bir alan yok; bu olmadan selectAsFlow'un döndürdüğü satırlar
+                        // çözümlenirken çalışma zamanında patlar.
+                        ignoreUnknownKeys = true
+                        // ŞART: deletedAt'in varsayılanı null. encodeDefaults false iken
+                        // null olan alan JSON'a hiç yazılmaz, Supabase upsert'i o kolona
+                        // dokunmaz ve çöpten geri yükleme sunucuya ULAŞMAZ — not bir
+                        // sonraki pull'da yeniden çöpe düşer.
+                        encodeDefaults = true
+                    }
+                )
                 install(Auth)
                 install(Postgrest)
                 install(Realtime)

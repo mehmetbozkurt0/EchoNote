@@ -2,6 +2,7 @@ package com.echonote.echonote.data
 
 import com.echonote.echonote.data.local.NotesLocalStore
 import com.echonote.echonote.model.Note
+import com.echonote.echonote.model.nowIsoUtc
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -17,6 +18,9 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.days
+import kotlin.time.ExperimentalTime
 
 /**
  * Offline-first senkron motoru. **Yerel depo tek gerçek kaynaktır**, Supabase senkron
@@ -56,6 +60,8 @@ class OfflineFirstNotesRepository(
 
     init {
         scope.launch { processMutations() }
+        // Açılışta bir kez: çöpte çok eskimiş notları kalıcı sil.
+        mutations.trySend(Mutation.PurgeOldTrash)
         if (remote != null) {
             scope.launch { pullLoop(remote) }
             scope.launch { pushLoop(remote) }
@@ -63,6 +69,8 @@ class OfflineFirstNotesRepository(
     }
 
     override fun observeNotes(): Flow<List<Note>> = local.observeVisible()
+
+    override fun observeTrash(): Flow<List<Note>> = local.observeTrashed()
 
     override fun observeSyncState(): Flow<SyncState> =
         combine(connection, local.observePendingPushCount()) { conn, pending ->
@@ -76,6 +84,14 @@ class OfflineFirstNotesRepository(
     }
 
     override fun deleteNote(id: String) {
+        mutations.trySend(Mutation.Trash(id))
+    }
+
+    override fun restoreNote(id: String) {
+        mutations.trySend(Mutation.Restore(id))
+    }
+
+    override fun deleteForever(id: String) {
         mutations.trySend(Mutation.Delete(id))
     }
 
@@ -96,6 +112,12 @@ class OfflineFirstNotesRepository(
                 when (mutation) {
                     is Mutation.Save -> local.upsertLocal(mutation.note)
                     is Mutation.Delete -> local.markPendingDelete(mutation.id)
+                    is Mutation.Trash -> {
+                        val now = nowIsoUtc()
+                        local.moveToTrash(id = mutation.id, deletedAt = now, updatedAt = now)
+                    }
+                    is Mutation.Restore -> local.restoreFromTrash(mutation.id, nowIsoUtc())
+                    is Mutation.PurgeOldTrash -> purgeOldTrash()
                     is Mutation.ApplyRemote -> applyRemote(mutation.notes)
                     is Mutation.ClearDirty ->
                         local.clearDirtyIfUnchanged(mutation.id, mutation.sentUpdatedAt)
@@ -109,6 +131,16 @@ class OfflineFirstNotesRepository(
                 errors.tryEmit("Yerel kayıt hatası: ${e.message}")
             }
         }
+    }
+
+    /**
+     * Çöpte [TRASH_RETENTION_DAYS] günden fazla duran notları kalıcı siler. Kalıcı silme
+     * normal yoldan gider (tombstone → uzak DELETE), yani diğer cihazdan da düşer.
+     */
+    @OptIn(ExperimentalTime::class)
+    private suspend fun purgeOldTrash() {
+        val cutoff = Clock.System.now().minus(TRASH_RETENTION_DAYS.days).toString()
+        local.trashedBefore(cutoff).forEach { id -> local.markPendingDelete(id) }
     }
 
     private suspend fun applyRemote(remoteNotes: List<Note>) {
@@ -216,6 +248,9 @@ class OfflineFirstNotesRepository(
     private sealed interface Mutation {
         data class Save(val note: Note) : Mutation
         data class Delete(val id: String) : Mutation
+        data class Trash(val id: String) : Mutation
+        data class Restore(val id: String) : Mutation
+        data object PurgeOldTrash : Mutation
         data class ApplyRemote(val notes: List<Note>) : Mutation
         data class ClearDirty(val id: String, val sentUpdatedAt: String) : Mutation
         data class DeleteHard(val id: String) : Mutation
@@ -225,5 +260,6 @@ class OfflineFirstNotesRepository(
         const val PUSH_DEBOUNCE_MS = 600L
         const val INITIAL_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 30_000L
+        const val TRASH_RETENTION_DAYS = 30
     }
 }

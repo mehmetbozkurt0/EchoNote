@@ -200,8 +200,9 @@ class OfflineFirstNotesRepositoryTest {
         )
     }
 
+    /** Kalıcı silme yolu. Çöp kutusu davranışı ayrı: bkz. TrashTest. */
     @Test
-    fun silmeUzagaGiderVeOnaylandiktanSonraYereldenSilinir() = runTest {
+    fun kaliciSilmeUzagaGiderVeOnaylandiktanSonraYereldenSilinir() = runTest {
         val remote = FakeRemoteNotesSource()
         val driver = inMemoryDriver()
         val repo = repository(driver, remote)
@@ -210,7 +211,7 @@ class OfflineFirstNotesRepositoryTest {
         advanceTimeBy(1_000)
         advanceUntilIdle()
 
-        repo.deleteNote("a")
+        repo.deleteForever("a")
         advanceTimeBy(1_000)
         advanceUntilIdle()
 

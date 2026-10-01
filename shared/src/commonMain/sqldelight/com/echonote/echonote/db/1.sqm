@@ -1,0 +1,5 @@
+-- v1 -> v2: geri alinabilir silme (cop kutusu) icin deleted_at kolonu.
+--
+-- Mevcut satirlar NULL alir, yani migration hicbir notu cope dusurmez ve hicbir
+-- veriye dokunmaz. Dosya adi "1.sqm": SQLDelight icin "surum 1'den sonraki adim".
+ALTER TABLE note ADD COLUMN deleted_at TEXT;
