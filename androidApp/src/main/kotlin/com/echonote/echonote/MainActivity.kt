@@ -9,6 +9,9 @@ import androidx.compose.ui.tooling.preview.Preview
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Yerel SQLite sürücüsü Application Context'e ihtiyaç duyuyor; setContent'ten
+        // önce verilmeli (repository ilk kez composition içinde kurulur).
+        EchoNoteAndroid.init(this)
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 

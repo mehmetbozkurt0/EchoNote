@@ -3,69 +3,66 @@ package com.echonote.echonote
 import com.echonote.echonote.ai.AiAction
 import com.echonote.echonote.ai.AiService
 import com.echonote.echonote.data.NotesRepository
+import com.echonote.echonote.data.SyncState
 import com.echonote.echonote.model.Note
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Testler için denetlenebilir depo: aboneliği sayar, istenen sayıda abonelikte hata
- * fırlatır ve [updateGate] ile yazmayı ağda askıda kalmış gibi bekletebilir.
+ * ViewModel testleri için depo ikizi. Yayınlar bilinçli olarak **otomatik değil**:
+ * yerel yazmanın UI'a dönüşü gerçekte asenkron olduğu için testler bu gecikmeyi
+ * [emitNotes] ile kendileri kurgular.
  */
-class FakeNotesRepository(initial: List<Note> = emptyList()) : NotesRepository {
+class FakeNotesRepository : NotesRepository {
 
-    private val emissions = MutableStateFlow(initial)
+    private val notes = MutableStateFlow<List<Note>>(emptyList())
+    private val sync = MutableStateFlow(SyncState())
+    private val errors = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
-    /** Sıfırdan büyükse [observeNotes] o kadar abonelikte hata ile biter. */
-    var failuresRemaining: Int = 0
-
-    /** [observeNotes]'un kaç kez abone olunduğu; retry davranışının kanıtı. */
-    var subscriptionCount: Int = 0
-        private set
-
-    /** Doluysa [updateNote] bu kapı açılana kadar askıda kalır. */
-    var updateGate: CompletableDeferred<Unit>? = null
-
-    /** [updateNote]'a kaç kez girildiği (kapıda beklemeye başlamak dahil). */
-    var updateEnteredCount: Int = 0
-        private set
-
-    val created = mutableListOf<Note>()
-    val updated = mutableListOf<Note>()
+    val saved = mutableListOf<Note>()
     val deleted = mutableListOf<String>()
+    var flushCount = 0
+        private set
 
-    /** Uzak yayını simüle eder (Realtime'dan gelen liste). */
-    fun emitRemote(notes: List<Note>) {
-        emissions.value = notes
+    fun emitNotes(list: List<Note>) {
+        notes.value = list
     }
 
-    override fun observeNotes(): Flow<List<Note>> = flow {
-        subscriptionCount++
-        if (failuresRemaining > 0) {
-            failuresRemaining--
-            throw IllegalStateException("fake bağlantı koptu")
-        }
-        emitAll(emissions)
+    fun emitSync(state: SyncState) {
+        sync.value = state
     }
 
-    override suspend fun createNote(note: Note) {
-        created += note
+    suspend fun emitError(message: String) {
+        errors.emit(message)
     }
 
-    override suspend fun updateNote(note: Note) {
-        updateEnteredCount++
-        updateGate?.await()
-        updated += note
+    override fun observeNotes(): Flow<List<Note>> = notes.asStateFlow()
+    override fun observeSyncState(): Flow<SyncState> = sync.asStateFlow()
+    override fun observeErrors(): Flow<String> = errors.asSharedFlow()
+
+    override fun saveNote(note: Note) {
+        saved += note
     }
 
-    override suspend fun deleteNote(id: String) {
+    override fun deleteNote(id: String) {
         deleted += id
+    }
+
+    override suspend fun flushOutbox() {
+        flushCount++
     }
 }
 
 /** Ağa çıkmayan, deterministik AI. */
-class FakeAiService(private val result: String = "# AI sonucu") : AiService {
-    override suspend fun transform(action: AiAction, title: String, content: String): String = result
+class FakeAiService(
+    private val result: String = "# AI sonucu",
+    private val failWith: Throwable? = null,
+) : AiService {
+    override suspend fun transform(action: AiAction, title: String, content: String): String {
+        failWith?.let { throw it }
+        return result
+    }
 }

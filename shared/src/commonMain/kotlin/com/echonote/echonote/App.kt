@@ -45,9 +45,9 @@ fun App() {
         val viewModel: NotesViewModel = viewModel { NotesViewModel() }
         val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-        // Uygulama arka plana düşerken (Android'de process death'ten hemen önceki son
-        // güvenilir nokta) bekleyen debounce'lu yazmaları hemen boşalt.
-        LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.flushPendingSavesAsync() }
+        // Yazmalar artık anında yerel depoya indiği için burada kurtarılacak bir şey yok;
+        // arka plana düşerken bekleyen senkronu uzağa göndermeye çalışmak yine değerli.
+        LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.requestOutboxFlush() }
 
         MeshBackground {
             // Insets kök yerine sayfa içeriklerine uygulanır: zeminler status bar'ın
@@ -108,6 +108,7 @@ private fun ExpandedLayout(state: NotesUiState, viewModel: NotesViewModel) {
         )
     }
 }
+
 
 /** Mobil: tam ekran liste; seçimde editör sağdan kayarak üste gelir. */
 @OptIn(ExperimentalComposeUiApi::class)

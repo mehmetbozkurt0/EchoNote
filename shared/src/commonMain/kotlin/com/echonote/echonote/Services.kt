@@ -3,9 +3,12 @@ package com.echonote.echonote
 import com.echonote.echonote.ai.AiService
 import com.echonote.echonote.ai.GeminiAiService
 import com.echonote.echonote.ai.MockAiService
-import com.echonote.echonote.data.InMemoryNotesRepository
 import com.echonote.echonote.data.NotesRepository
-import com.echonote.echonote.data.SupabaseNotesRepository
+import com.echonote.echonote.data.OfflineFirstNotesRepository
+import com.echonote.echonote.data.RemoteNotesSource
+import com.echonote.echonote.data.SupabaseNotesSource
+import com.echonote.echonote.data.local.NotesLocalStore
+import com.echonote.echonote.data.local.createSqlDriver
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
@@ -14,18 +17,31 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
 
 /**
- * Servis fabrikaları: Secrets doluysa gerçek servisler, boşsa çevrimdışı
- * (mock AI + bellek içi depo) kurulum. Uygulama her iki modda da çalışır.
+ * Servis fabrikaları. Yerel depo **her zaman** kurulur — Secrets'ın dolu olup olmaması
+ * yalnızca senkron katmanının var olup olmadığını belirler. Çevrimdışı modda da notlar
+ * artık kalıcıdır (eski InMemoryNotesRepository her açılışta sıfırlanıyordu).
  */
 
-fun createNotesRepository(): NotesRepository =
+fun createNotesRepository(
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+): NotesRepository = OfflineFirstNotesRepository(
+    local = NotesLocalStore(driver = createSqlDriver(), dispatcher = Dispatchers.IO),
+    remote = createRemoteNotesSource(),
+    scope = scope,
+)
+
+/** Supabase bilgileri girilmemişse null: uygulama yalnızca yerel depoyla çalışır. */
+private fun createRemoteNotesSource(): RemoteNotesSource? =
     if (Secrets.SUPABASE_URL.isBlank() || Secrets.SUPABASE_ANON_KEY.isBlank()) {
-        InMemoryNotesRepository()
+        null
     } else {
-        SupabaseNotesRepository(
+        SupabaseNotesSource(
             createSupabaseClient(
                 supabaseUrl = Secrets.SUPABASE_URL,
                 supabaseKey = Secrets.SUPABASE_ANON_KEY,

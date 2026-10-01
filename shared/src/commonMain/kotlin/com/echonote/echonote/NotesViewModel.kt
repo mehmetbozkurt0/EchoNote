@@ -4,13 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.echonote.echonote.ai.AiAction
 import com.echonote.echonote.ai.AiService
-import com.echonote.echonote.data.InMemoryNotesRepository
 import com.echonote.echonote.data.NotesRepository
+import com.echonote.echonote.data.SyncState
 import com.echonote.echonote.model.Note
 import com.echonote.echonote.model.localDeviceId
 import com.echonote.echonote.model.newNoteId
 import com.echonote.echonote.model.nowIsoUtc
-import com.echonote.echonote.model.parseTimestampOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -19,35 +18,27 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlin.time.ExperimentalTime
-import kotlin.time.Instant
-
-/** Uzak depoyla kurulan canlı bağlantının durumu; başlıktaki göstergeyi besler. */
-enum class ConnectionState {
-    /** Secrets boş bırakıldı: sahte AI + bellek içi depo, senkron yok. */
-    OfflineMode,
-    Connecting,
-    Live,
-    Reconnecting,
-}
 
 data class NotesUiState(
+    /** Yerel depodan türetilir; sıralama ve birleştirme veri katmanında yapılmıştır. */
     val notes: List<Note> = emptyList(),
     val selectedNoteId: String? = null,
+    /**
+     * Editörün metni. Liste DB'den türetilirken editör VM'e aittir: her tuş vuruşunu
+     * DB'ye yazıp geri okumak birkaç ms gecikme yaratır ve imleç zıplardı.
+     */
+    val editorTitle: String = "",
+    val editorContent: String = "",
     /** AI şu anda hangi nota yazıyor; null ise akış yok. */
     val streamingNoteId: String? = null,
     /** Seçili not için geri alınabilecek bir sürüm var mı. */
     val canUndo: Boolean = false,
-    val connection: ConnectionState = ConnectionState.Connecting,
-    /** Depoya yazılmayı bekleyen en az bir not var mı. */
-    val hasUnsavedChanges: Boolean = false,
+    val sync: SyncState = SyncState(),
     val errorMessage: String? = null,
 ) {
-    val selectedNote: Note? get() = notes.firstOrNull { it.id == selectedNoteId }
+    val hasSelection: Boolean get() = selectedNoteId != null
     val isStreamingSelected: Boolean get() = streamingNoteId != null && streamingNoteId == selectedNoteId
 }
 
@@ -56,31 +47,29 @@ class NotesViewModel(
     private val aiService: AiService = createAiService(),
 ) : ViewModel() {
 
-    private val isOfflineMode = repository is InMemoryNotesRepository
-
-    private val _uiState = MutableStateFlow(
-        NotesUiState(
-            connection = if (isOfflineMode) ConnectionState.OfflineMode else ConnectionState.Connecting,
-        )
-    )
+    private val _uiState = MutableStateFlow(NotesUiState())
     val uiState: StateFlow<NotesUiState> = _uiState.asStateFlow()
 
-    /** Not başına eski içerik yığını; AI her değişiklik öncesi buraya iter. */
+    /** Not başına eski içerik yığını; oturum içi UI durumu, kalıcı olması gerekmiyor. */
     private val undoStacks = mutableMapOf<String, ArrayDeque<String>>()
 
-    /** Yerelde değişip henüz depoya yazılmamış notlar; uzak yayın bunları ezmesin. */
-    private val dirtyNoteIds = mutableSetOf<String>()
-
-    /** Silinmesi istenen ama uzak silme onayı henüz yayına düşmemiş notlar. */
-    private val pendingDeleteIds = mutableSetOf<String>()
-    private val saveJobs = mutableMapOf<String, Job>()
     private var aiJob: Job? = null
 
-    /** Kapanışta bekleyen yazmaların boşaltılması için kayıt; [onCleared] iptal eder. */
-    private val unregisterFlushHook = SaveCoordinator.register(::flushPendingSaves)
+    /** Kapanışta outbox'ı uzağa boşaltma denemesi; [onCleared] kaydı iptal eder. */
+    private val unregisterFlushHook = SaveCoordinator.register(repository::flushOutbox)
 
     init {
-        viewModelScope.launch { observeRepository() }
+        viewModelScope.launch {
+            repository.observeNotes().collect(::onNotesFromStore)
+        }
+        viewModelScope.launch {
+            repository.observeSyncState().collect { sync -> _uiState.update { it.copy(sync = sync) } }
+        }
+        viewModelScope.launch {
+            repository.observeErrors().collect { message ->
+                _uiState.update { it.copy(errorMessage = message) }
+            }
+        }
     }
 
     override fun onCleared() {
@@ -91,7 +80,8 @@ class NotesViewModel(
     // --- Kullanıcı eylemleri ---
 
     fun selectNote(id: String) {
-        _uiState.update { it.copy(selectedNoteId = id, canUndo = canUndoFor(id)) }
+        val note = _uiState.value.notes.firstOrNull { it.id == id } ?: return
+        openInEditor(note)
     }
 
     fun createNote() {
@@ -102,63 +92,36 @@ class NotesViewModel(
             updatedAt = nowIsoUtc(),
             deviceId = localDeviceId,
         )
-        // Uzak yayını beklemeden iyimser olarak listeye koy ki seçim anında çalışsın.
-        _uiState.update { state ->
-            state.copy(notes = listOf(note) + state.notes, selectedNoteId = note.id, canUndo = false)
-        }
-        // Uzak yayına düşene kadar kirli say: hem gösterge dürüst kalır hem de
-        // mergeRemoteNotes yeni notu "uzakta yok" diye listeden düşürmez.
-        markDirty(note.id)
-        viewModelScope.launch {
-            try {
-                repository.createNote(note)
-                markClean(note.id)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _uiState.update { it.copy(errorMessage = "Not oluşturulamadı: ${e.message}") }
-            }
-        }
+        repository.saveNote(note)
+        // Editör anında açılır; not listeye DB akışıyla birkaç ms içinde düşer.
+        openInEditor(note)
     }
 
     fun deleteNote(id: String) {
-        // Silinen nota AI yazıyorsa önce akışı kes.
         if (_uiState.value.streamingNoteId == id) stopStreaming()
-        saveJobs.remove(id)?.cancel()
-        markClean(id)
         undoStacks.remove(id)
-        pendingDeleteIds += id
-
-        // İyimser: listeden hemen düş; seçiliyse komşu nota geç.
-        _uiState.update { state ->
-            val remaining = state.notes.filterNot { it.id == id }
-            val selected = if (state.selectedNoteId == id) remaining.firstOrNull()?.id else state.selectedNoteId
-            state.copy(notes = remaining, selectedNoteId = selected, canUndo = canUndoFor(selected))
-        }
-
-        viewModelScope.launch {
-            try {
-                repository.deleteNote(id)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // Başarısızsa korumayı kaldır: not bir sonraki uzak yayında geri gelir.
-                pendingDeleteIds -= id
-                _uiState.update { it.copy(errorMessage = "Not silinemedi: ${e.message}") }
+        repository.deleteNote(id)
+        if (_uiState.value.selectedNoteId == id) {
+            // Seçim kalkar; gelen liste ile komşu nota geçilir.
+            _uiState.update {
+                it.copy(selectedNoteId = null, editorTitle = "", editorContent = "", canUndo = false)
             }
         }
     }
 
-    fun updateContent(noteId: String, newContent: String) {
+    fun updateContent(newContent: String) {
+        val state = _uiState.value
+        val noteId = state.selectedNoteId ?: return
         // AI aynı nota yazarken kullanıcı düzenlemesi yok sayılır (editör zaten readOnly).
-        if (_uiState.value.streamingNoteId == noteId) return
-        setNoteContent(noteId, newContent)
-        scheduleSave(noteId)
+        if (state.streamingNoteId == noteId) return
+        _uiState.update { it.copy(editorContent = newContent) }
+        persistEditor()
     }
 
-    fun updateTitle(noteId: String, newTitle: String) {
-        mutateNote(noteId) { it.copy(title = newTitle) }
-        scheduleSave(noteId)
+    fun updateTitle(newTitle: String) {
+        if (_uiState.value.selectedNoteId == null) return
+        _uiState.update { it.copy(editorTitle = newTitle) }
+        persistEditor()
     }
 
     fun expandSelected() = runAi(AiAction.EXPAND)
@@ -175,8 +138,8 @@ class NotesViewModel(
         val noteId = state.selectedNoteId ?: return
         if (state.streamingNoteId == noteId) return
         val previous = undoStacks[noteId]?.removeLastOrNull() ?: return
-        setNoteContent(noteId, previous)
-        scheduleSave(noteId)
+        _uiState.update { it.copy(editorContent = previous, canUndo = canUndoFor(noteId)) }
+        persistEditor()
     }
 
     fun dismissError() {
@@ -184,46 +147,45 @@ class NotesViewModel(
     }
 
     /**
-     * Debounce'u atlayıp bekleyen tüm yazmaları hemen kalıcılaştırır. Android'de ON_STOP,
-     * desktop'ta pencere kapanışı çağırır — aksi halde son 600 ms'lik düzenleme kaybolur.
-     *
-     * [dirtyNoteIds]'in anlık görüntüsü alınır; kümeyi değiştiren her yol Main dispatcher'da
-     * tek sırada koştuğu için araya giren mutasyon yarışı yoktur.
+     * Bekleyen senkronu uzağa göndermeyi dener. Yazmalar zaten diske indiği için bu bir
+     * kurtarma değil, erken gönderme girişimidir; başarısız olursa outbox DB'de durur.
      */
-    suspend fun flushPendingSaves() {
-        val pending = dirtyNoteIds.toList()
-        pending.forEach { saveJobs.remove(it)?.cancel() }
-        pending.forEach { persist(it) }
-    }
-
-    /** [flushPendingSaves]'in ateşle-ve-bırak sarmalayıcısı; Compose efektlerinden çağrılır. */
-    fun flushPendingSavesAsync() {
-        viewModelScope.launch { flushPendingSaves() }
+    fun requestOutboxFlush() {
+        viewModelScope.launch { repository.flushOutbox() }
     }
 
     // --- AI akışı ---
 
     private fun runAi(action: AiAction) {
-        val note = _uiState.value.selectedNote ?: return
-        if (_uiState.value.streamingNoteId != null) return
+        val state = _uiState.value
+        val noteId = state.selectedNoteId ?: return
+        if (state.streamingNoteId != null) return
+        val before = state.editorContent
 
         aiJob = viewModelScope.launch {
-            _uiState.update { it.copy(streamingNoteId = note.id, errorMessage = null) }
+            _uiState.update { it.copy(streamingNoteId = noteId, errorMessage = null) }
             try {
                 // Tam yanıt gelmeden undo yığınına dokunma: AI hata verirse yığın kirlenmesin.
-                val target = aiService.transform(action, note.title, note.content)
-                pushUndo(note.id, note.content)
-                markDirty(note.id)
-                streamText(target).collect { partial -> setNoteContent(note.id, partial) }
+                val target = aiService.transform(action, state.editorTitle, before)
+                pushUndo(noteId, before)
+                var sinceSave = 0
+                streamText(target).collect { partial ->
+                    _uiState.update { it.copy(editorContent = partial) }
+                    // Her token'da DB'ye yazmak israf (45 ms'de bir token gelir);
+                    // periyodik yaz, kesin yazma finally'de.
+                    if (++sinceSave >= STREAM_SAVE_EVERY_TOKENS) {
+                        sinceSave = 0
+                        persistEditor()
+                    }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = "AI hatası: ${e.message}") }
             } finally {
-                _uiState.update { it.copy(streamingNoteId = null, canUndo = canUndoFor(it.selectedNoteId)) }
+                _uiState.update { it.copy(streamingNoteId = null, canUndo = canUndoFor(noteId)) }
                 // Tamamlanan ya da "Durdur" ile yarım kalan içeriği kalıcılaştır.
-                val current = _uiState.value.notes.firstOrNull { it.id == note.id }
-                if (current != null && current.content != note.content) scheduleSave(note.id)
+                if (_uiState.value.selectedNoteId == noteId) persistEditor()
             }
         }
     }
@@ -238,133 +200,59 @@ class NotesViewModel(
         }
     }
 
-    // --- Depo senkronizasyonu ---
+    // --- Depo ---
 
     /**
-     * Uzak depoyu kalıcı olarak dinler.
-     *
-     * Hata akışı SONLANDIRMAZ: [retryWhen] üstel beklemeyle yeniden abone olur, böylece ağ
-     * bir an kopsa bile uygulama yeniden başlatılmadan kendini toparlar. (Eskiden buradaki
-     * `catch` Flow'u bitiriyordu ve ilk hatadan sonra hiçbir uzak güncelleme gelmiyordu.)
-     * Sonsuz denenir; bekleme [MAX_BACKOFF_MS] ile tavanlandığı için maliyeti sınırlıdır.
+     * Yerel depodan gelen liste. Editör alanlarına **dokunulmaz** sürece seçili not hâlâ
+     * duruyor: kullanıcı yazarken altından metni değiştirmek imleci bozardı. Seçili not
+     * kaybolduysa (başka cihazda silinmiş ya da yerel silme uygulanmış) komşuya geçilir.
      */
-    private suspend fun observeRepository() {
-        repository.observeNotes()
-            .onEach { if (!isOfflineMode) setConnection(ConnectionState.Live) }
-            .retryWhen { cause, attempt ->
-                if (cause is CancellationException) return@retryWhen false
-                setConnection(ConnectionState.Reconnecting)
-                _uiState.update {
-                    it.copy(errorMessage = "Bağlantı koptu, yeniden deneniyor… (${cause.message})")
-                }
-                delay(reconnectBackoffMs(attempt))
-                true
-            }
-            .collect(::mergeRemoteNotes)
-    }
-
-    /** 1s, 2s, 4s, 8s, 16s → [MAX_BACKOFF_MS] tavanı. */
-    private fun reconnectBackoffMs(attempt: Long): Long =
-        (INITIAL_BACKOFF_MS shl attempt.coerceAtMost(5).toInt()).coerceAtMost(MAX_BACKOFF_MS)
-
-    /**
-     * Uzaktan gelen listeyi işler. Çakışma çözümü last-write-wins:
-     * yerelde kaydedilmemiş (dirty) ve updated_at'i daha yeni olan not, uzak sürümü ezer;
-     * diğer her durumda uzak sürüm kazanır. Liste updated_at'e göre yeniden eskiye sıralanır.
-     */
-    private fun mergeRemoteNotes(remote: List<Note>) {
-        // Uzak yayın silineni artık içermiyorsa koruma görevini tamamlamıştır.
-        pendingDeleteIds.retainAll { id -> remote.any { it.id == id } }
+    private fun onNotesFromStore(notes: List<Note>) {
         _uiState.update { state ->
-            val merged = remote
-                .filterNot { it.id in pendingDeleteIds } // iyimser silinen, yankıyla geri dirilmesin
-                .map { incoming ->
-                    val local = state.notes.firstOrNull { it.id == incoming.id }
-                    if (local != null && incoming.id in dirtyNoteIds && isNewer(local, incoming)) local else incoming
-                }
-            // İyimser eklenen ama uzak yayına henüz düşmemiş yeni notları kaybetme.
-            val pendingLocal = state.notes.filter { note ->
-                note.id in dirtyNoteIds && merged.none { it.id == note.id }
+            val selectionAlive = state.selectedNoteId != null &&
+                notes.any { it.id == state.selectedNoteId }
+            if (selectionAlive) {
+                state.copy(notes = notes)
+            } else {
+                val fallback = notes.firstOrNull()
+                state.copy(
+                    notes = notes,
+                    selectedNoteId = fallback?.id,
+                    editorTitle = fallback?.title.orEmpty(),
+                    editorContent = fallback?.content.orEmpty(),
+                    canUndo = canUndoFor(fallback?.id),
+                )
             }
-            val sorted = (merged + pendingLocal).sortedByDescending { it.updatedAtInstant() }
-            val selected = state.selectedNoteId?.takeIf { id -> sorted.any { it.id == id } }
-                ?: sorted.firstOrNull()?.id
-            state.copy(notes = sorted, selectedNoteId = selected, canUndo = canUndoFor(selected))
         }
     }
 
-    private fun scheduleSave(noteId: String) {
-        markDirty(noteId)
-        saveJobs.remove(noteId)?.cancel()
-        saveJobs[noteId] = viewModelScope.launch {
-            delay(SAVE_DEBOUNCE_MS)
-            persist(noteId)
-        }
-    }
-
-    private suspend fun persist(noteId: String) {
-        val sent = _uiState.value.notes.firstOrNull { it.id == noteId } ?: return
-        try {
-            repository.updateNote(sent)
-            // Ağ beklerken kullanıcı yazmaya devam ettiyse not kirli KALMALI; aksi halde
-            // araya düşen uzak yankı henüz gönderilmemiş harfleri geri alır.
-            val current = _uiState.value.notes.firstOrNull { it.id == noteId }
-            if (current == null || current.updatedAt == sent.updatedAt) markClean(noteId)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            _uiState.update { it.copy(errorMessage = "Not kaydedilemedi: ${e.message}") }
-        }
+    /** Editördeki hâli yerel depoya yazar; anında kalıcı olur, senkron veri katmanında. */
+    private fun persistEditor() {
+        val state = _uiState.value
+        val noteId = state.selectedNoteId ?: return
+        repository.saveNote(
+            Note(
+                id = noteId,
+                title = state.editorTitle,
+                content = state.editorContent,
+                updatedAt = nowIsoUtc(),
+                deviceId = localDeviceId,
+            )
+        )
     }
 
     // --- Yardımcılar ---
 
-    /** Yerel mutasyonların tek kapısı: updated_at ve device_id damgasını burada basar. */
-    private fun mutateNote(noteId: String, transform: (Note) -> Note) {
-        _uiState.update { state ->
-            state.copy(
-                notes = state.notes.map { note ->
-                    if (note.id == noteId) {
-                        transform(note).copy(updatedAt = nowIsoUtc(), deviceId = localDeviceId)
-                    } else {
-                        note
-                    }
-                },
-                canUndo = canUndoFor(state.selectedNoteId),
+    private fun openInEditor(note: Note) {
+        _uiState.update {
+            it.copy(
+                selectedNoteId = note.id,
+                editorTitle = note.title,
+                editorContent = note.content,
+                canUndo = canUndoFor(note.id),
             )
         }
     }
-
-    private fun setNoteContent(noteId: String, content: String) {
-        mutateNote(noteId) { it.copy(content = content) }
-    }
-
-    /** [dirtyNoteIds]'in tek giriş kapısı: kümeyi ve ona bağlı UI bayrağını birlikte günceller. */
-    private fun markDirty(noteId: String) {
-        if (dirtyNoteIds.add(noteId)) syncUnsavedFlag()
-    }
-
-    private fun markClean(noteId: String) {
-        if (dirtyNoteIds.remove(noteId)) syncUnsavedFlag()
-    }
-
-    private fun syncUnsavedFlag() {
-        val unsaved = dirtyNoteIds.isNotEmpty()
-        _uiState.update { if (it.hasUnsavedChanges == unsaved) it else it.copy(hasUnsavedChanges = unsaved) }
-    }
-
-    private fun setConnection(state: ConnectionState) {
-        _uiState.update { if (it.connection == state) it else it.copy(connection = state) }
-    }
-
-    private fun isNewer(candidate: Note, reference: Note): Boolean {
-        val candidateTime = candidate.updatedAtInstant() ?: return true // çözümlenemezse yereli koru
-        val referenceTime = reference.updatedAtInstant() ?: return true
-        return candidateTime >= referenceTime
-    }
-
-    @OptIn(ExperimentalTime::class)
-    private fun Note.updatedAtInstant(): Instant? = parseTimestampOrNull(updatedAt)
 
     private fun pushUndo(noteId: String, content: String) {
         val stack = undoStacks.getOrPut(noteId) { ArrayDeque() }
@@ -378,9 +266,7 @@ class NotesViewModel(
     private companion object {
         val TOKEN_REGEX = Regex("""\S+\s*""")
         const val TYPEWRITER_DELAY_MS = 45L
-        const val SAVE_DEBOUNCE_MS = 600L
         const val MAX_UNDO_DEPTH = 20
-        const val INITIAL_BACKOFF_MS = 1_000L
-        const val MAX_BACKOFF_MS = 30_000L
+        const val STREAM_SAVE_EVERY_TOKENS = 25
     }
 }

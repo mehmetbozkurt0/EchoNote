@@ -24,30 +24,40 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.echonote.echonote.data.ConnectionState
+import com.echonote.echonote.data.SyncState
 
 /**
- * Başlık altındaki tek satırlık senkron göstergesi. Yazdığın şeyin depoya ulaşıp
- * ulaşmadığını ve canlı bağlantının ayakta olup olmadığını görünür kılar.
+ * Başlık altındaki tek satırlık senkron göstergesi.
  *
- * Öncelik sırası bilinçli: bağlantı sorunu, kaydetme durumundan önce gelir — çünkü
- * bağlantı yokken "Kaydediliyor…" yazmak yanıltıcı olur.
+ * Yerel depo geldiğinden beri iki ayrı gerçek var ve ikisi de kullanıcıyı ilgilendirir:
+ * yazı **diskte kalıcı mı** (her zaman evet) ve **uzağa gitti mi** (bağlantıya bağlı).
+ * Metinler bu ayrımı açıkça söyler; "kaydedildi" artık ağa ulaştığını ima etmez.
  */
 @Composable
-fun SyncStatusChip(state: NotesUiState, modifier: Modifier = Modifier) {
-    val (label, color, pulsing) = when {
-        state.connection == ConnectionState.OfflineMode ->
-            Triple("Çevrimdışı mod", EchoColors.TextSecondary, false)
+fun SyncStatusChip(sync: SyncState, modifier: Modifier = Modifier) {
+    val pending = sync.pendingCount
+    val (label, color, pulsing) = when (sync.connection) {
+        // Yerel depo her koşulda kalıcı; burada anlatılan şey senkronun durumu.
+        ConnectionState.OfflineMode ->
+            Triple("Çevrimdışı mod · yerelde saklanıyor", EchoColors.TextSecondary, false)
 
-        state.connection == ConnectionState.Reconnecting ->
-            Triple("Bağlantı yok — yeniden deneniyor", EchoColors.NeonRose, true)
+        ConnectionState.Reconnecting ->
+            if (pending > 0) {
+                Triple("Çevrimdışı · $pending değişiklik bekliyor", EchoColors.NeonRose, true)
+            } else {
+                Triple("Bağlantı yok — yeniden deneniyor", EchoColors.NeonRose, true)
+            }
 
-        state.connection == ConnectionState.Connecting ->
+        ConnectionState.Connecting ->
             Triple("Bağlanıyor…", EchoColors.TextSecondary, true)
 
-        state.hasUnsavedChanges ->
-            Triple("Kaydediliyor…", EchoColors.NeonLavender, true)
-
-        else -> Triple("Kaydedildi", EchoColors.NeonMint, false)
+        ConnectionState.Live ->
+            if (pending > 0) {
+                Triple("Kaydedildi · senkron bekliyor", EchoColors.NeonLavender, true)
+            } else {
+                Triple("Senkron", EchoColors.NeonMint, false)
+            }
     }
 
     Row(

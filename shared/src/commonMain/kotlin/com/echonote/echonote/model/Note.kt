@@ -49,52 +49,6 @@ fun parseTimestampOrNull(value: String): Instant? =
     runCatching { Instant.parse(value) }.getOrNull()
         ?: runCatching { Instant.parse(value + "Z") }.getOrNull()
 
-fun sampleNotes(): List<Note> = listOf(
-    sampleNote(
-        title = "EchoNote Vizyonu",
-        content = """
-            # EchoNote Vizyonu
-
-            EchoNote, **yapay zekâ destekli** bir not uygulamasıdır.
-
-            ## Temel Fikir
-
-            Notlar sadece yazılmaz, *yaşar*. AI ile:
-            - Kısa notlar genişletilir
-            - Uzun notlar özetlenir
-            - Her değişiklik `geri alınabilir`
-
-            > Not almak düşünmenin yarısıdır.
-        """.trimIndent(),
-    ),
-    sampleNote(
-        title = "Toplantı Notları",
-        content = """
-            # Sprint Planlama
-
-            **Katılımcılar:** Mehmet, Ayşe, Deniz
-
-            ## Kararlar
-            - KMP mimarisi onaylandı
-            - UI iskeleti bu sprint bitecek
-            - Veritabanı *sonraki* sprintte
-        """.trimIndent(),
-    ),
-    sampleNote(
-        title = "Alışveriş Listesi",
-        content = """
-            # Alışveriş
-
-            - Kahve **çekirdek olmalı**
-            - Süt
-            - Zeytin
-        """.trimIndent(),
-    ),
-)
-
-private fun sampleNote(title: String, content: String): Note =
-    Note(id = newNoteId(), title = title, content = content, updatedAt = nowIsoUtc(), deviceId = localDeviceId)
-
 /**
  * Sahte AI: verilen içeriği "genişletilmiş" bir sürüme dönüştürür.
  * Gerçek bir LLM çağrısının yerini tutar; deterministiktir.

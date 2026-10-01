@@ -72,7 +72,7 @@ fun NoteListPane(
                     fontWeight = FontWeight.Bold,
                     color = EchoColors.NeonCyan,
                 )
-                SyncStatusChip(state, modifier = Modifier.padding(top = 2.dp))
+                SyncStatusChip(state.sync, modifier = Modifier.padding(top = 2.dp))
             }
             GlassButton(text = "+ Yeni", onClick = onCreate, accent = EchoColors.NeonMint)
         }

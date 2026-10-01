@@ -1,36 +1,56 @@
 package com.echonote.echonote.data
 
 import com.echonote.echonote.model.Note
-import com.echonote.echonote.model.sampleNotes
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 
-interface NotesRepository {
-    /** Not listesini reaktif olarak yayınlar; uzak kaynaklarda gerçek zamanlı değişiklikleri içerir. */
-    fun observeNotes(): Flow<List<Note>>
-    /** UUID, updated_at ve device_id çağıran tarafça doldurulmuş tam bir satır ekler. */
-    suspend fun createNote(note: Note)
-    suspend fun updateNote(note: Note)
-    suspend fun deleteNote(id: String)
+/** Uzak depoyla kurulan canlı bağlantının durumu. */
+enum class ConnectionState {
+    /** Secrets boş bırakıldı: senkron yok, yalnızca yerel depo. */
+    OfflineMode,
+    Connecting,
+    Live,
+    Reconnecting,
 }
 
-/** Supabase bilgileri girilmemişken devreye giren bellek içi depo. */
-class InMemoryNotesRepository : NotesRepository {
-    private val notes = MutableStateFlow(sampleNotes())
+/**
+ * Senkron durumu. [pendingCount], yerelde kalıcı olup henüz uzağa gönderilmemiş
+ * değişiklik sayısı — "kaydedildi" ile "senkronlandı" artık farklı şeyler.
+ */
+data class SyncState(
+    val connection: ConnectionState = ConnectionState.Connecting,
+    val pendingCount: Long = 0,
+)
 
-    override fun observeNotes(): Flow<List<Note>> = notes.asStateFlow()
+/**
+ * ViewModel'in gördüğü sözleşme. Yazma işlemleri **suspend değil**: çağrıldıkları anda
+ * sıralı bir kuyruğa girer ve yerel depoya yazılır. ViewModel'in her tuş vuruşu için
+ * coroutine başlatması gerekmez ve yazma sırası garanti edilir.
+ */
+interface NotesRepository {
 
-    override suspend fun createNote(note: Note) {
-        notes.update { it + note }
-    }
+    /** Yerel depodan beslenen liste; ağı hiç beklemez. */
+    fun observeNotes(): Flow<List<Note>>
 
-    override suspend fun updateNote(note: Note) {
-        notes.update { list -> list.map { if (it.id == note.id) note else it } }
-    }
+    fun observeSyncState(): Flow<SyncState>
 
-    override suspend fun deleteNote(id: String) {
-        notes.update { list -> list.filterNot { it.id == id } }
-    }
+    /** Gerçek hatalar (yerel yazma başarısızlığı gibi); geçici ağ sorunları değil. */
+    fun observeErrors(): Flow<String>
+
+    /** Oluşturma ve güncelleme aynı yol: yerel yazma + senkron kuyruğuna alma. */
+    fun saveNote(note: Note)
+
+    fun deleteNote(id: String)
+
+    /** Bekleyen senkronu uzağa göndermeyi dener (kapanış kancası). */
+    suspend fun flushOutbox()
+}
+
+/**
+ * Uzak kaynak soyutlaması. Outbox tek bir "upsert" ile çalışır: yerelde oluşturulmuş
+ * bir not uzakta var da olabilir yok da, ayrım yapmak gerekmez.
+ */
+interface RemoteNotesSource {
+    fun observeNotes(): Flow<List<Note>>
+    suspend fun upsertNote(note: Note)
+    suspend fun deleteNote(id: String)
 }

@@ -39,14 +39,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.echonote.echonote.model.Note
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NoteEditorPane(
     state: NotesUiState,
-    onContentChange: (String, String) -> Unit,
-    onTitleChange: (String, String) -> Unit,
+    onContentChange: (String) -> Unit,
+    onTitleChange: (String) -> Unit,
     onExpand: () -> Unit,
     onCondense: () -> Unit,
     onUndo: () -> Unit,
@@ -58,8 +57,9 @@ fun NoteEditorPane(
 ) {
     val container = if (framed) Modifier.glass(RoundedCornerShape(24.dp)) else Modifier
 
-    val note = state.selectedNote
-    if (note == null) {
+    // Seçim üzerinden karar verilir, listede görünmesi beklenmez: yeni oluşturulan not
+    // DB akışıyla birkaç ms sonra listeye düşer, editör o anda açık olmalı.
+    if (!state.hasSelection) {
         Box(modifier.fillMaxSize().then(container), contentAlignment = Alignment.Center) {
             Text("Bir not seç", color = EchoColors.TextSecondary)
         }
@@ -80,8 +80,8 @@ fun NoteEditorPane(
                 )
             }
             BasicTextField(
-                value = note.title,
-                onValueChange = { onTitleChange(note.id, it) },
+                value = state.editorTitle,
+                onValueChange = onTitleChange,
                 singleLine = true,
                 textStyle = MaterialTheme.typography.headlineSmall.copy(
                     fontWeight = FontWeight.Bold,
@@ -136,7 +136,7 @@ fun NoteEditorPane(
         )
 
         MarkdownEditor(
-            note = note,
+            content = state.editorContent,
             readOnly = isStreamingHere,
             onContentChange = onContentChange,
             modifier = Modifier.weight(1f),
@@ -146,16 +146,16 @@ fun NoteEditorPane(
 
 @Composable
 private fun MarkdownEditor(
-    note: Note,
+    content: String,
     readOnly: Boolean,
-    onContentChange: (String, String) -> Unit,
+    onContentChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val markdownTransformation = remember { MarkdownTransformation(echoMarkdownColors()) }
 
     BasicTextField(
-        value = note.content,
-        onValueChange = { onContentChange(note.id, it) },
+        value = content,
+        onValueChange = onContentChange,
         readOnly = readOnly,
         visualTransformation = markdownTransformation,
         textStyle = TextStyle(

@@ -6,6 +6,15 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.sqldelight)
+}
+
+sqldelight {
+    databases {
+        create("EchoDatabase") {
+            packageName.set("com.echonote.echonote.db")
+        }
+    }
 }
 
 kotlin {
@@ -31,6 +40,10 @@ kotlin {
     sourceSets {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
+            implementation(libs.sqldelight.androidDriver)
+        }
+        jvmMain.dependencies {
+            implementation(libs.sqldelight.sqliteDriver)
         }
         commonMain.dependencies {
             implementation(libs.compose.runtime)
@@ -55,6 +68,8 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinxJson)
             implementation(libs.supabase.postgrest)
             implementation(libs.supabase.realtime)
+            implementation(libs.sqldelight.runtime)
+            implementation(libs.sqldelight.coroutinesExtensions)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)

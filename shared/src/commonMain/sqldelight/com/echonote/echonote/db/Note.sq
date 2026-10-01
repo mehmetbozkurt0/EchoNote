@@ -1,0 +1,64 @@
+-- EchoNote yerel deposu. Tek gerçek kaynak budur; Supabase senkron katmanıdır.
+--
+-- dirty / pending_delete, Adım 1'de ViewModel belleğinde tutulan senkron defterinin
+-- kalıcı hâli: bekleyen iş artık cihaz yeniden başlasa bile kaybolmaz.
+--
+-- SQL bilerek SQLite 3.18 temelinde: upsert (ON CONFLICT DO UPDATE) 3.24+ istiyor,
+-- Android'de bu API 30+ demek, minSdk ise 24. Koşullu yazma Kotlin tarafında
+-- transaction içinde yapılıyor (NotesLocalStore).
+
+CREATE TABLE note (
+    id             TEXT NOT NULL PRIMARY KEY,
+    title          TEXT NOT NULL,
+    content        TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    device_id      TEXT NOT NULL,
+    dirty          INTEGER AS kotlin.Boolean NOT NULL DEFAULT 0,
+    pending_delete INTEGER AS kotlin.Boolean NOT NULL DEFAULT 0
+);
+
+CREATE INDEX note_updated_at ON note(updated_at DESC);
+
+-- --- Okuma ---
+
+-- UI'ın gördüğü liste: tombstone'lar görünmez.
+selectVisible:
+SELECT * FROM note WHERE pending_delete = 0 ORDER BY updated_at DESC;
+
+selectById:
+SELECT * FROM note WHERE id = ?;
+
+-- Uzak listede olmayanları silmek için: yalnızca senkron olmuş satırlar adaydır,
+-- bekleyen iş taşıyanlara dokunulmaz (henüz push edilmemiş yeni not olabilir).
+selectCleanIds:
+SELECT id FROM note WHERE dirty = 0 AND pending_delete = 0;
+
+-- Outbox: uzağa gönderilmeyi bekleyen her şey.
+selectPendingPush:
+SELECT * FROM note WHERE dirty = 1 OR pending_delete = 1;
+
+countPendingPush:
+SELECT count(*) FROM note WHERE dirty = 1 OR pending_delete = 1;
+
+-- --- Yazma ---
+
+insertNote:
+INSERT INTO note(id, title, content, updated_at, device_id, dirty, pending_delete)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+updateNoteRow:
+UPDATE note
+SET title = ?, content = ?, updated_at = ?, device_id = ?, dirty = ?
+WHERE id = ?;
+
+markPendingDelete:
+UPDATE note SET pending_delete = 1 WHERE id = ?;
+
+-- Sürüm korumalı temizleme: Adım 1'deki updated_at karşılaştırmasının atomik SQL hâli.
+-- Uzağa yazarken kullanıcı yazmaya devam ettiyse updated_at değişmiş olur ve satır
+-- kirli kalır — böylece yeni harfler bir sonraki push'ta gönderilir.
+clearDirtyIfUnchanged:
+UPDATE note SET dirty = 0 WHERE id = ? AND updated_at = ?;
+
+deleteHard:
+DELETE FROM note WHERE id = ?;
