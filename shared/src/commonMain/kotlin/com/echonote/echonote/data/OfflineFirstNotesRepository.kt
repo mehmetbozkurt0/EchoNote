@@ -9,7 +9,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
@@ -31,6 +33,14 @@ class OfflineFirstNotesRepository(
     private val local: NotesLocalStore,
     private val remote: RemoteNotesSource?,
     private val scope: CoroutineScope,
+    /**
+     * Senkron yalnızca oturum açıkken çalışır.
+     *
+     * Bu kapı olmadan: RLS açıkken kimliği olmayan bir sorgu boş liste döner, [applyRemote]
+     * bunu "her şey uzaktan silinmiş" diye yorumlar ve YEREL VERİYİ SİLER. Giriş ekranı
+     * görünürken senkronun koşması, kullanıcının yerel kopyasını yok etmeye yeter.
+     */
+    private val isAuthenticated: StateFlow<Boolean> = MutableStateFlow(true),
 ) : NotesRepository {
 
     private val connection = MutableStateFlow(
@@ -115,6 +125,18 @@ class OfflineFirstNotesRepository(
      * anlatıyor ve her yeniden denemede banner açmak gürültü olurdu.
      */
     private suspend fun pullLoop(source: RemoteNotesSource) {
+        // collectLatest: oturum kapanınca içerideki abonelik iptal edilir, böylece
+        // kimliksiz bir yayın yerel veriyi silemez.
+        isAuthenticated.collectLatest { authed ->
+            if (!authed) {
+                connection.value = ConnectionState.Connecting
+                return@collectLatest
+            }
+            subscribeToRemote(source)
+        }
+    }
+
+    private suspend fun subscribeToRemote(source: RemoteNotesSource) {
         source.observeNotes()
             .onEach {
                 connection.value = ConnectionState.Live
@@ -155,6 +177,9 @@ class OfflineFirstNotesRepository(
 
     /** Outbox'ı boşaltmayı dener; hepsi başarılıysa true. */
     private suspend fun drainOutbox(source: RemoteNotesSource): Boolean {
+        // Oturum yokken göndermenin anlamı yok: RLS reddeder ve bayraklar boşuna
+        // temizlenme riskine girer. Bekleyen iş DB'de durur, giriş sonrası gider.
+        if (!isAuthenticated.value) return false
         val pending = try {
             local.pendingPush()
         } catch (e: CancellationException) {

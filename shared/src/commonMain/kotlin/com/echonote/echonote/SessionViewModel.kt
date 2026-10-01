@@ -22,7 +22,12 @@ data class SessionUiState(
 
 class SessionViewModel(
     private val authService: AuthService = createAuthService(),
-    private val repository: NotesRepository = createNotesRepository(),
+    /**
+     * Sağlayıcı olarak alınır, hazır örnek olarak DEĞİL: varsayılan parametre olarak
+     * `createNotesRepository()` yazılırsa depo ve senkron motoru, giriş ekranı daha
+     * ekrandayken kurulur ve kimliksiz bir uzak sorgu yerel veriyi silebilir.
+     */
+    private val repositoryProvider: () -> NotesRepository = ::createNotesRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SessionUiState())
@@ -48,7 +53,7 @@ class SessionViewModel(
                 authService.signOut()
                 // Yerel veriyi oturum kapandıktan SONRA sil: silme sırasında senkron
                 // motoru hâlâ yazıyor olsaydı, silinenleri uzağa silme olarak gönderebilirdi.
-                repository.clearLocalData()
+                repositoryProvider().clearLocalData()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

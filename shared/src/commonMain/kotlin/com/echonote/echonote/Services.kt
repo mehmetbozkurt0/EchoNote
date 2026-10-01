@@ -7,6 +7,7 @@ import com.echonote.echonote.ai.MockAiService
 import com.echonote.echonote.data.NotesRepository
 import com.echonote.echonote.data.OfflineFirstNotesRepository
 import com.echonote.echonote.data.SupabaseNotesSource
+import com.echonote.echonote.data.auth.AuthGate
 import com.echonote.echonote.data.auth.AuthService
 import com.echonote.echonote.data.auth.NoAuthService
 import com.echonote.echonote.data.auth.SupabaseAuthService
@@ -26,6 +27,9 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.json.Json
 
 /**
@@ -77,6 +81,9 @@ object AppServices {
             local = localStore,
             remote = supabase?.let(::SupabaseNotesSource),
             scope = scope,
+            isAuthenticated = authService.state
+                .map { it.gate == AuthGate.SignedIn }
+                .stateIn(scope, SharingStarted.Eagerly, false),
         )
     }
 

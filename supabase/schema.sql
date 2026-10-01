@@ -39,21 +39,24 @@ alter table public.notes replica identity full;
 --   • Yeni not senkron oluyor mu (gösterge "Senkron")
 -- Bu aşama, giriş akışını VERİYE DOKUNMADAN test etmek içindir.
 
--- Hesabın UUID'sini buradan al (Aşama 2'de lazım):
+-- Kaç hesap var? Devam etmeden önce 1 dönmeli (yalnızca senin hesabın):
+select count(*) as hesap_sayisi from auth.users;
 select id, email, created_at from auth.users order by created_at;
 
 
 -- ---------------------------------------------------------------------------
 -- AŞAMA 2 — user_id kolonu + mevcut notları devret
 -- ---------------------------------------------------------------------------
--- Önce nullable ekle, sonra backfill: mevcut 22 not sahipsiz kalmamalı.
+-- Önce nullable ekle, sonra backfill: mevcut notlar sahipsiz kalmamalı.
 
 alter table public.notes
     add column if not exists user_id uuid references auth.users (id) on delete cascade;
 
--- ↓↓↓ Aşama 1'de aldığın UUID'yi yapıştır ↓↓↓
+-- Tüm mevcut notları ilk (= senin) hesaba devret. UUID elle yapıştırmaya gerek yok;
+-- yukarıdaki hesap_sayisi 1 ise bu güvenlidir. Birden fazla hesap varsa BURAYA
+-- kendi UUID'ni yazmalısın, yoksa notlar yanlış hesaba gider.
 update public.notes
-set user_id = '00000000-0000-0000-0000-000000000000'
+set user_id = (select id from auth.users order by created_at limit 1)
 where user_id is null;
 
 -- Devretme tamam mı? Sıfır dönmeli:
@@ -77,6 +80,16 @@ create index if not exists notes_user_id_idx on public.notes (user_id);
 -- AŞAMA 4 — RLS'i aç (asıl kilit)
 -- ---------------------------------------------------------------------------
 alter table public.notes enable row level security;
+
+-- ÖNCE ESKİ GENİŞ POLİTİKALARI KALDIR.
+-- Postgres'te politikalar varsayılan olarak permissive'dir ve VEYA ile birleşir:
+-- "herkese her şey" diyen tek bir politika, aşağıdaki 4 kuralı tamamen anlamsız kılar.
+-- (Bu projede Supabase kurulumundan kalma "anon full access" politikası vardı ve
+-- RLS açıkken bile tüm notlar kimliksiz okunabiliyordu.)
+drop policy if exists "anon full access" on public.notes;
+
+-- Kalan geniş politika var mı? Aşağıdakiler dışında bir satır dönerse onu da düşür:
+--   select policyname, roles, cmd from pg_policies where tablename = 'notes';
 
 drop policy if exists "kendi notlarini okur"     on public.notes;
 drop policy if exists "kendi notlarini ekler"    on public.notes;

@@ -3,6 +3,8 @@ package com.echonote.echonote.data
 import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -31,13 +33,64 @@ class OfflineFirstNotesRepositoryTest {
     private fun TestScope.repository(
         driver: SqlDriver,
         remote: FakeRemoteNotesSource?,
+        isAuthenticated: StateFlow<Boolean> = MutableStateFlow(true),
     ) = OfflineFirstNotesRepository(
         local = storeFor(driver),
         remote = remote,
         scope = CoroutineScope(
             backgroundScope.coroutineContext + UnconfinedTestDispatcher(testScheduler)
         ),
+        isAuthenticated = isAuthenticated,
     )
+
+    /**
+     * Sahada yaşandı: giriş ekranı açıkken senkron motoru çalışıyordu. RLS açık olduğu
+     * için kimliksiz sorgu boş liste döndü, motor bunu "hepsi uzaktan silinmiş" sanıp
+     * yereldeki 22 notu sildi.
+     */
+    @Test
+    fun oturumYokkenGelenBosUzakListeYereliSILMEZ() = runTest {
+        val auth = MutableStateFlow(false)
+        val remote = FakeRemoteNotesSource(initial = emptyList())
+        val driver = inMemoryDriver()
+        val store = storeFor(driver)
+        // Önceki oturumdan kalan yerel notlar
+        store.upsertFromRemote(testNote("a"))
+        store.upsertFromRemote(testNote("b"))
+
+        val repo = repository(driver, remote, isAuthenticated = auth)
+        advanceTimeBy(5_000)
+
+        assertEquals(
+            2,
+            repo.observeNotes().first().size,
+            "Giriş yapılmadan gelen boş uzak liste yerel veriyi silmemeli",
+        )
+
+        // Giriş yapılınca senkron devreye girer ve gerçek uzak durum uygulanır.
+        remote.emitRemote(listOf(testNote("a"), testNote("b")))
+        auth.value = true
+        advanceTimeBy(2_000)
+
+        assertEquals(2, repo.observeNotes().first().size)
+    }
+
+    @Test
+    fun oturumYokkenOutboxGonderilmez() = runTest {
+        val auth = MutableStateFlow(false)
+        val remote = FakeRemoteNotesSource()
+        val repo = repository(inMemoryDriver(), remote, isAuthenticated = auth)
+
+        repo.saveNote(testNote("a"))
+        advanceTimeBy(5_000)
+
+        assertTrue(remote.upserted.isEmpty(), "Oturum yokken uzağa yazma denenmemeli")
+        assertEquals(1, repo.observeSyncState().first().pendingCount)
+
+        auth.value = true
+        advanceTimeBy(2_000)
+        assertContentEquals(listOf("a"), remote.upserted.map { it.id })
+    }
 
     // --- Kalıcılık: offline-first'ün asıl vaadi ---
 

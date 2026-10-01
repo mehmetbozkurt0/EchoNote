@@ -64,7 +64,7 @@ class SessionViewModelTest {
     @Test
     fun oturumDurumuUiStateyeAkar() = runTest(dispatcher) {
         val auth = FakeAuthService()
-        val vm = SessionViewModel(auth, FakeNotesRepository())
+        val vm = SessionViewModel(auth) { FakeNotesRepository() }
         advanceUntilIdle()
 
         assertEquals(AuthGate.Loading, vm.uiState.value.gate)
@@ -78,7 +78,7 @@ class SessionViewModelTest {
     @Test
     fun girisHatasiKullaniciyaGosterilirVeBusyBirakilir() = runTest(dispatcher) {
         val auth = FakeAuthService().apply { failWith = IllegalStateException("Invalid login credentials") }
-        val vm = SessionViewModel(auth, FakeNotesRepository())
+        val vm = SessionViewModel(auth) { FakeNotesRepository() }
         advanceUntilIdle()
 
         vm.signIn("a@b.com", "yanlisparola")
@@ -91,7 +91,7 @@ class SessionViewModelTest {
     @Test
     fun ayniAndaIkinciGirisIstegiYoksayilir() = runTest(dispatcher) {
         val auth = FakeAuthService()
-        val vm = SessionViewModel(auth, FakeNotesRepository())
+        val vm = SessionViewModel(auth) { FakeNotesRepository() }
         advanceUntilIdle()
 
         vm.signIn("a@b.com", "parola123")
@@ -105,7 +105,7 @@ class SessionViewModelTest {
     fun cikisYerelVeriyiSiler() = runTest(dispatcher) {
         val auth = FakeAuthService()
         val repo = FakeNotesRepository()
-        val vm = SessionViewModel(auth, repo)
+        val vm = SessionViewModel(auth) { repo }
         advanceUntilIdle()
 
         vm.signOut()

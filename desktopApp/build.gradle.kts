@@ -24,6 +24,13 @@ compose.desktop {
             packageName = "com.echonote.echonote"
             packageVersion = "1.0.0"
 
+            // jlink runtime'ı yalnızca listelenen JDK modüllerini paketler. SQLDelight'ın
+            // sqlite-driver'ı JDBC üzerinden çalıştığı için java.sql şart; olmadan
+            // paketlenmiş uygulama açılışta NoClassDefFoundError: java/sql/DriverManager
+            // verir. `gradlew :desktopApp:run` tam JDK kullandığı için bunu göstermez —
+            // ancak createDistributable/packageMsi çıktısında ortaya çıkar.
+            modules("java.sql", "java.naming")
+
             // icon.ico geçerli ICO formatında olmadığı için paketleyici reddediyor;
             // gerçek bir .ico üretilince bu blok geri açılabilir.
             // windows {
