@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -47,8 +48,12 @@ fun App() {
     EchoTheme {
         val session: SessionViewModel = viewModel { SessionViewModel() }
         val sessionState by session.uiState.collectAsStateWithLifecycle()
+        val activity = rememberActivityState()
 
-        MeshBackground {
+        MeshBackground(
+            modifier = Modifier.trackActivity(activity),
+            active = activity.isActive,
+        ) {
             when (sessionState.gate) {
                 AuthGate.Loading -> LoadingGate()
 
@@ -64,6 +69,7 @@ fun App() {
                 AuthGate.SignedIn -> NotesApp(
                     accountEmail = sessionState.email,
                     onSignOut = session::signOut,
+                    activity = activity,
                 )
             }
         }
@@ -78,11 +84,19 @@ private fun BoxScope.LoadingGate() {
 }
 
 @Composable
-private fun BoxScope.NotesApp(accountEmail: String?, onSignOut: () -> Unit) {
+private fun BoxScope.NotesApp(
+    accountEmail: String?,
+    onSignOut: () -> Unit,
+    activity: ActivityState,
+) {
     val viewModel: NotesViewModel = viewModel { NotesViewModel() }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val geminiKey by AppServices.settings.geminiApiKey.collectAsStateWithLifecycle()
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
+
+    // Yazmak da etkileşimdir: fiziksel klavyeyle yazarken işaretçi olayı gelmez,
+    // bu olmadan arka plan kullanıcı yazarken duraklardı.
+    LaunchedEffect(state.editorContent, state.selectedNoteId) { activity.touch() }
 
     // Yazmalar artık anında yerel depoya indiği için burada kurtarılacak bir şey yok;
     // arka plana düşerken bekleyen senkronu uzağa göndermeye çalışmak yine değerli.
