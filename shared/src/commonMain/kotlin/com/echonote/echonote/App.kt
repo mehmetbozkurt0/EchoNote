@@ -4,7 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,13 +22,16 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -40,6 +45,10 @@ fun App() {
         val viewModel: NotesViewModel = viewModel { NotesViewModel() }
         val state by viewModel.uiState.collectAsStateWithLifecycle()
 
+        // Uygulama arka plana düşerken (Android'de process death'ten hemen önceki son
+        // güvenilir nokta) bekleyen debounce'lu yazmaları hemen boşalt.
+        LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.flushPendingSavesAsync() }
+
         MeshBackground {
             // Insets kök yerine sayfa içeriklerine uygulanır: zeminler status bar'ın
             // arkasına taşar (edge-to-edge), yazılar ise güvenli alanda kalır.
@@ -49,6 +58,22 @@ fun App() {
                 } else {
                     CompactLayout(state, viewModel)
                 }
+            }
+
+            // Hata bannerı kökte: her iki layout'ta ve hiç not seçili olmasa da görünür.
+            AnimatedVisibility(
+                visible = state.errorMessage != null,
+                enter = fadeIn() + slideInVertically { it },
+                exit = fadeOut() + slideOutVertically { it },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(16.dp),
+            ) {
+                ErrorBanner(
+                    message = state.errorMessage.orEmpty(),
+                    onDismiss = viewModel::dismissError,
+                )
             }
         }
     }
@@ -79,7 +104,6 @@ private fun ExpandedLayout(state: NotesUiState, viewModel: NotesViewModel) {
             onCondense = viewModel::condenseSelected,
             onUndo = viewModel::undoSelected,
             onStop = viewModel::stopStreaming,
-            onDismissError = viewModel::dismissError,
             modifier = Modifier.weight(1f).fillMaxHeight(),
         )
     }
@@ -89,7 +113,8 @@ private fun ExpandedLayout(state: NotesUiState, viewModel: NotesViewModel) {
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun CompactLayout(state: NotesUiState, viewModel: NotesViewModel) {
-    var editorOpen by remember { mutableStateOf(false) }
+    // rememberSaveable: ekran döndürüldüğünde editörden listeye fırlamamak için.
+    var editorOpen by rememberSaveable { mutableStateOf(false) }
 
     NoteListPane(
         state = state,
@@ -122,7 +147,6 @@ private fun CompactLayout(state: NotesUiState, viewModel: NotesViewModel) {
                 onCondense = viewModel::condenseSelected,
                 onUndo = viewModel::undoSelected,
                 onStop = viewModel::stopStreaming,
-                onDismissError = viewModel::dismissError,
                 onBack = { editorOpen = false },
                 framed = false,
                 modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),

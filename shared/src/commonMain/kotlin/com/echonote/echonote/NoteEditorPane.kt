@@ -51,7 +51,6 @@ fun NoteEditorPane(
     onCondense: () -> Unit,
     onUndo: () -> Unit,
     onStop: () -> Unit,
-    onDismissError: () -> Unit,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     /** false: mobil tam ekran sayfa — dış cam çerçeve yok, cam efekti butonlarda kalır. */
@@ -131,14 +130,6 @@ fun NoteEditorPane(
             StreamingBanner()
         }
 
-        AnimatedVisibility(
-            visible = state.errorMessage != null,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-        ) {
-            ErrorBanner(message = state.errorMessage.orEmpty(), onDismiss = onDismissError)
-        }
-
         HorizontalDivider(
             color = EchoColors.GlassBorder,
             modifier = Modifier.padding(bottom = 12.dp),
@@ -177,26 +168,6 @@ private fun MarkdownEditor(
             .fillMaxWidth()
             .verticalScroll(rememberScrollState()),
     )
-}
-
-@Composable
-private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 12.dp)
-            .glass(shape = RoundedCornerShape(16.dp), fill = EchoColors.NeonRose.copy(alpha = 0.10f))
-            .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
-    ) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodySmall,
-            color = EchoColors.NeonRose,
-            modifier = Modifier.weight(1f),
-        )
-        GlassButton(text = "Kapat", onClick = onDismiss, accent = EchoColors.NeonRose)
-    }
 }
 
 @Composable

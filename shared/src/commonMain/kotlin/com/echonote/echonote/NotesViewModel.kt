@@ -18,12 +18,22 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
+
+/** Uzak depoyla kurulan canlı bağlantının durumu; başlıktaki göstergeyi besler. */
+enum class ConnectionState {
+    /** Secrets boş bırakıldı: sahte AI + bellek içi depo, senkron yok. */
+    OfflineMode,
+    Connecting,
+    Live,
+    Reconnecting,
+}
 
 data class NotesUiState(
     val notes: List<Note> = emptyList(),
@@ -32,8 +42,9 @@ data class NotesUiState(
     val streamingNoteId: String? = null,
     /** Seçili not için geri alınabilecek bir sürüm var mı. */
     val canUndo: Boolean = false,
-    /** Secrets boş bırakıldıysa true: sahte AI + bellek içi depo. */
-    val isOfflineMode: Boolean = false,
+    val connection: ConnectionState = ConnectionState.Connecting,
+    /** Depoya yazılmayı bekleyen en az bir not var mı. */
+    val hasUnsavedChanges: Boolean = false,
     val errorMessage: String? = null,
 ) {
     val selectedNote: Note? get() = notes.firstOrNull { it.id == selectedNoteId }
@@ -45,8 +56,12 @@ class NotesViewModel(
     private val aiService: AiService = createAiService(),
 ) : ViewModel() {
 
+    private val isOfflineMode = repository is InMemoryNotesRepository
+
     private val _uiState = MutableStateFlow(
-        NotesUiState(isOfflineMode = repository is InMemoryNotesRepository)
+        NotesUiState(
+            connection = if (isOfflineMode) ConnectionState.OfflineMode else ConnectionState.Connecting,
+        )
     )
     val uiState: StateFlow<NotesUiState> = _uiState.asStateFlow()
 
@@ -61,14 +76,16 @@ class NotesViewModel(
     private val saveJobs = mutableMapOf<String, Job>()
     private var aiJob: Job? = null
 
+    /** Kapanışta bekleyen yazmaların boşaltılması için kayıt; [onCleared] iptal eder. */
+    private val unregisterFlushHook = SaveCoordinator.register(::flushPendingSaves)
+
     init {
-        viewModelScope.launch {
-            repository.observeNotes()
-                .catch { e ->
-                    _uiState.update { it.copy(errorMessage = "Veritabanı bağlantı hatası: ${e.message}") }
-                }
-                .collect(::mergeRemoteNotes)
-        }
+        viewModelScope.launch { observeRepository() }
+    }
+
+    override fun onCleared() {
+        unregisterFlushHook()
+        super.onCleared()
     }
 
     // --- Kullanıcı eylemleri ---
@@ -89,9 +106,13 @@ class NotesViewModel(
         _uiState.update { state ->
             state.copy(notes = listOf(note) + state.notes, selectedNoteId = note.id, canUndo = false)
         }
+        // Uzak yayına düşene kadar kirli say: hem gösterge dürüst kalır hem de
+        // mergeRemoteNotes yeni notu "uzakta yok" diye listeden düşürmez.
+        markDirty(note.id)
         viewModelScope.launch {
             try {
                 repository.createNote(note)
+                markClean(note.id)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -104,7 +125,7 @@ class NotesViewModel(
         // Silinen nota AI yazıyorsa önce akışı kes.
         if (_uiState.value.streamingNoteId == id) stopStreaming()
         saveJobs.remove(id)?.cancel()
-        dirtyNoteIds -= id
+        markClean(id)
         undoStacks.remove(id)
         pendingDeleteIds += id
 
@@ -162,6 +183,24 @@ class NotesViewModel(
         _uiState.update { it.copy(errorMessage = null) }
     }
 
+    /**
+     * Debounce'u atlayıp bekleyen tüm yazmaları hemen kalıcılaştırır. Android'de ON_STOP,
+     * desktop'ta pencere kapanışı çağırır — aksi halde son 600 ms'lik düzenleme kaybolur.
+     *
+     * [dirtyNoteIds]'in anlık görüntüsü alınır; kümeyi değiştiren her yol Main dispatcher'da
+     * tek sırada koştuğu için araya giren mutasyon yarışı yoktur.
+     */
+    suspend fun flushPendingSaves() {
+        val pending = dirtyNoteIds.toList()
+        pending.forEach { saveJobs.remove(it)?.cancel() }
+        pending.forEach { persist(it) }
+    }
+
+    /** [flushPendingSaves]'in ateşle-ve-bırak sarmalayıcısı; Compose efektlerinden çağrılır. */
+    fun flushPendingSavesAsync() {
+        viewModelScope.launch { flushPendingSaves() }
+    }
+
     // --- AI akışı ---
 
     private fun runAi(action: AiAction) {
@@ -174,7 +213,7 @@ class NotesViewModel(
                 // Tam yanıt gelmeden undo yığınına dokunma: AI hata verirse yığın kirlenmesin.
                 val target = aiService.transform(action, note.title, note.content)
                 pushUndo(note.id, note.content)
-                dirtyNoteIds += note.id
+                markDirty(note.id)
                 streamText(target).collect { partial -> setNoteContent(note.id, partial) }
             } catch (e: CancellationException) {
                 throw e
@@ -200,6 +239,33 @@ class NotesViewModel(
     }
 
     // --- Depo senkronizasyonu ---
+
+    /**
+     * Uzak depoyu kalıcı olarak dinler.
+     *
+     * Hata akışı SONLANDIRMAZ: [retryWhen] üstel beklemeyle yeniden abone olur, böylece ağ
+     * bir an kopsa bile uygulama yeniden başlatılmadan kendini toparlar. (Eskiden buradaki
+     * `catch` Flow'u bitiriyordu ve ilk hatadan sonra hiçbir uzak güncelleme gelmiyordu.)
+     * Sonsuz denenir; bekleme [MAX_BACKOFF_MS] ile tavanlandığı için maliyeti sınırlıdır.
+     */
+    private suspend fun observeRepository() {
+        repository.observeNotes()
+            .onEach { if (!isOfflineMode) setConnection(ConnectionState.Live) }
+            .retryWhen { cause, attempt ->
+                if (cause is CancellationException) return@retryWhen false
+                setConnection(ConnectionState.Reconnecting)
+                _uiState.update {
+                    it.copy(errorMessage = "Bağlantı koptu, yeniden deneniyor… (${cause.message})")
+                }
+                delay(reconnectBackoffMs(attempt))
+                true
+            }
+            .collect(::mergeRemoteNotes)
+    }
+
+    /** 1s, 2s, 4s, 8s, 16s → [MAX_BACKOFF_MS] tavanı. */
+    private fun reconnectBackoffMs(attempt: Long): Long =
+        (INITIAL_BACKOFF_MS shl attempt.coerceAtMost(5).toInt()).coerceAtMost(MAX_BACKOFF_MS)
 
     /**
      * Uzaktan gelen listeyi işler. Çakışma çözümü last-write-wins:
@@ -228,7 +294,7 @@ class NotesViewModel(
     }
 
     private fun scheduleSave(noteId: String) {
-        dirtyNoteIds += noteId
+        markDirty(noteId)
         saveJobs.remove(noteId)?.cancel()
         saveJobs[noteId] = viewModelScope.launch {
             delay(SAVE_DEBOUNCE_MS)
@@ -237,10 +303,13 @@ class NotesViewModel(
     }
 
     private suspend fun persist(noteId: String) {
-        val note = _uiState.value.notes.firstOrNull { it.id == noteId } ?: return
+        val sent = _uiState.value.notes.firstOrNull { it.id == noteId } ?: return
         try {
-            repository.updateNote(note)
-            dirtyNoteIds -= noteId
+            repository.updateNote(sent)
+            // Ağ beklerken kullanıcı yazmaya devam ettiyse not kirli KALMALI; aksi halde
+            // araya düşen uzak yankı henüz gönderilmemiş harfleri geri alır.
+            val current = _uiState.value.notes.firstOrNull { it.id == noteId }
+            if (current == null || current.updatedAt == sent.updatedAt) markClean(noteId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -270,6 +339,24 @@ class NotesViewModel(
         mutateNote(noteId) { it.copy(content = content) }
     }
 
+    /** [dirtyNoteIds]'in tek giriş kapısı: kümeyi ve ona bağlı UI bayrağını birlikte günceller. */
+    private fun markDirty(noteId: String) {
+        if (dirtyNoteIds.add(noteId)) syncUnsavedFlag()
+    }
+
+    private fun markClean(noteId: String) {
+        if (dirtyNoteIds.remove(noteId)) syncUnsavedFlag()
+    }
+
+    private fun syncUnsavedFlag() {
+        val unsaved = dirtyNoteIds.isNotEmpty()
+        _uiState.update { if (it.hasUnsavedChanges == unsaved) it else it.copy(hasUnsavedChanges = unsaved) }
+    }
+
+    private fun setConnection(state: ConnectionState) {
+        _uiState.update { if (it.connection == state) it else it.copy(connection = state) }
+    }
+
     private fun isNewer(candidate: Note, reference: Note): Boolean {
         val candidateTime = candidate.updatedAtInstant() ?: return true // çözümlenemezse yereli koru
         val referenceTime = reference.updatedAtInstant() ?: return true
@@ -293,5 +380,7 @@ class NotesViewModel(
         const val TYPEWRITER_DELAY_MS = 45L
         const val SAVE_DEBOUNCE_MS = 600L
         const val MAX_UNDO_DEPTH = 20
+        const val INITIAL_BACKOFF_MS = 1_000L
+        const val MAX_BACKOFF_MS = 30_000L
     }
 }

@@ -72,13 +72,7 @@ fun NoteListPane(
                     fontWeight = FontWeight.Bold,
                     color = EchoColors.NeonCyan,
                 )
-                if (state.isOfflineMode) {
-                    Text(
-                        text = "Çevrimdışı mod",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = EchoColors.TextSecondary,
-                    )
-                }
+                SyncStatusChip(state, modifier = Modifier.padding(top = 2.dp))
             }
             GlassButton(text = "+ Yeni", onClick = onCreate, accent = EchoColors.NeonMint)
         }

@@ -1,31 +1,89 @@
-This is a Kotlin Multiplatform project targeting Android, Desktop (JVM).
+# EchoNote
 
-* [/shared](./shared/src) is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-    - [commonMain](./shared/src/commonMain/kotlin) is for code that’s common for all targets.
-    - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-      For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-      the [iosMain](./shared/src/iosMain/kotlin) folder would be the right place for such calls.
-      Similarly, if you want to edit the Desktop (JVM) specific part, the [jvmMain](./shared/src/jvmMain/kotlin)
-      folder is the appropriate location.
+Yapay zekâ destekli, gerçek zamanlı senkronize not uygulaması.
+Kotlin Multiplatform + Compose Multiplatform; hedefler: **Android** ve **Desktop (JVM)**.
 
-### Running the apps
+- Notlar Supabase'de saklanır ve Realtime ile cihazlar arasında anlık senkronlanır.
+- Gemini ile not genişletme / özetleme, her değişiklik geri alınabilir.
+- Markdown yazarken anlık vurgulanır.
 
-Use the run configurations provided by the run widget in your IDE's toolbar. You can also use these commands and
-options:
+## Kurulum
 
-- Android app: `./gradlew :androidApp:assembleDebug`
-- Desktop app:
-    - Hot reload: `./gradlew :desktopApp:hotRun --auto`
-    - Standard run: `./gradlew :desktopApp:run`
+### 1. API anahtarları
 
-### Running tests
+`Secrets.kt` git'e **girmez** (`.gitignore`'da). Şablondan oluştur:
 
-Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:
+```bash
+cp shared/src/commonMain/kotlin/com/echonote/echonote/Secrets.kt.example \
+   shared/src/commonMain/kotlin/com/echonote/echonote/Secrets.kt
+```
 
-- Android tests: `./gradlew :shared:testAndroidHostTest`
-- Desktop tests: `./gradlew :shared:jvmTest`
+Sonra değerleri doldur:
+
+| Alan | Nereden |
+|---|---|
+| `GEMINI_API_KEY` | https://aistudio.google.com/apikey |
+| `SUPABASE_URL` | Supabase Dashboard → Settings → API → Project URL |
+| `SUPABASE_ANON_KEY` | Supabase Dashboard → Settings → API → anon/public |
+
+Alanları **boş bırakırsan** uygulama çevrimdışı moda düşer: sahte AI + bellek içi not
+deposu ile çalışır. Bu modda notlar her kapanışta sıfırlanır.
+
+### 2. Supabase
+
+[`supabase/schema.sql`](supabase/schema.sql) dosyasını Dashboard → SQL Editor'de çalıştır. Bu:
+
+1. `notes` tablosunu oluşturur,
+2. tabloyu **Realtime yayınına ekler** — bu adım atlanırsa uygulama hiç canlı güncelleme
+   almaz ve bunu sessizce yapar,
+3. **RLS teşhis sorgularını** içerir.
+
+> **Güvenlik:** anon anahtarı istemciye gömülüdür ve herkese açıktır. RLS kapalıysa bu
+> anahtarı eline geçiren herkes tüm notları okuyup silebilir. `schema.sql`'in 3. bölümü
+> mevcut durumu raporlar; gerçek kilitleme Supabase Auth eklendiğinde yapılacak
+> (aynı dosyanın 4. bölümünde taslak hazır).
+
+## Çalıştırma
+
+IDE'nin run widget'ındaki hazır konfigürasyonları kullanabilir ya da:
+
+- **Android:** `./gradlew :androidApp:assembleDebug`
+- **Desktop:**
+  - Hot reload: `./gradlew :desktopApp:hotRun --auto`
+  - Normal: `./gradlew :desktopApp:run`
+
+## Testler
+
+```bash
+./gradlew :shared:jvmTest :shared:testAndroidHostTest
+```
+
+`NotesViewModelTest`, senkron katmanının kritik davranışlarını kilitler: Realtime
+akışının hatadan sonra yeniden abone olması, kapanışta bekleyen yazmaların boşaltılması,
+ağda askıda yazma sırasında eklenen harflerin kaybolmaması, iyimser silmenin bayat uzak
+yankıyla geri dirilmemesi.
+
+## Mimari
+
+```
+shared/src/commonMain/kotlin/com/echonote/echonote/
+├─ App.kt                  responsive kabuk (800dp eşiği: split-pane / tam ekran yığın)
+├─ NotesViewModel.kt        tek state holder: iyimser güncelleme, debounce'lu kayıt,
+│                          last-write-wins birleştirme, Realtime retry
+├─ NoteListPane.kt          liste + senkron göstergesi
+├─ NoteEditorPane.kt        başlık, AI eylemleri, editör
+├─ Banners.kt               SyncStatusChip + ErrorBanner
+├─ MarkdownHighlighter.kt   VisualTransformation ile inline Markdown vurgu
+├─ Theme.kt                 dark glassmorphism sistemi
+├─ SaveCoordinator.kt       kapanışta bekleyen yazmaları boşaltma kancası
+├─ data/                    NotesRepository + InMemory & Supabase gerçeklemeleri
+├─ ai/                      AiService + Mock & Gemini gerçeklemeleri
+└─ model/                   Note, zaman damgası yardımcıları
+```
+
+`shared/src/{androidMain,jvmMain}` yalnızca platform `expect/actual`'larını içerir;
+UI'ın tamamı ortak koddadır.
 
 ---
 
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
+[Kotlin Multiplatform hakkında daha fazla](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)
