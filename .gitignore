@@ -20,3 +20,5 @@ node_modules/
 
 # API anahtarları — asla commit'lenmez (şablon: Secrets.kt.example)
 shared/src/commonMain/kotlin/com/echonote/echonote/Secrets.kt
+# Gemini anahtarı Ayarlar ekranına taşınırken alınan geçici yedek; taşıdıktan sonra sil.
+shared/src/commonMain/kotlin/com/echonote/echonote/Secrets.kt.bak

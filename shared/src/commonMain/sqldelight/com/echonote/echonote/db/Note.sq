@@ -62,3 +62,7 @@ UPDATE note SET dirty = 0 WHERE id = ? AND updated_at = ?;
 
 deleteHard:
 DELETE FROM note WHERE id = ?;
+
+-- Çıkışta: bir sonraki hesap öncekinin notlarını görmesin.
+deleteAll:
+DELETE FROM note;

@@ -43,6 +43,9 @@ interface NotesRepository {
 
     /** Bekleyen senkronu uzağa göndermeyi dener (kapanış kancası). */
     suspend fun flushOutbox()
+
+    /** Çıkışta çağrılır: yerel veriyi siler ki sonraki hesap öncekinin notlarını görmesin. */
+    suspend fun clearLocalData()
 }
 
 /**

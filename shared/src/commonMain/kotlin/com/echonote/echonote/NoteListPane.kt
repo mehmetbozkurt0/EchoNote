@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -55,6 +56,7 @@ fun NoteListPane(
     onSelect: (String) -> Unit,
     onCreate: () -> Unit,
     onDelete: (String) -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     /** false: mobil tam ekran sayfa — dış cam çerçeve yok, cam efekti kartlarda kalır. */
     framed: Boolean = true,
@@ -75,6 +77,17 @@ fun NoteListPane(
                 SyncStatusChip(state.sync, modifier = Modifier.padding(top = 2.dp))
             }
             GlassButton(text = "+ Yeni", onClick = onCreate, accent = EchoColors.NeonMint)
+            IconButton(
+                onClick = onOpenSettings,
+                modifier = Modifier.padding(start = 4.dp).size(44.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Ayarlar",
+                    tint = EchoColors.TextSecondary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),

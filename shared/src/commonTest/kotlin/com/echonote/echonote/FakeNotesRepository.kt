@@ -54,6 +54,14 @@ class FakeNotesRepository : NotesRepository {
     override suspend fun flushOutbox() {
         flushCount++
     }
+
+    override suspend fun clearLocalData() {
+        clearCount++
+        notes.value = emptyList()
+    }
+
+    var clearCount = 0
+        private set
 }
 
 /** Ağa çıkmayan, deterministik AI. */

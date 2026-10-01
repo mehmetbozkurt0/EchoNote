@@ -74,6 +74,10 @@ class OfflineFirstNotesRepository(
         drainOutbox(source)
     }
 
+    override suspend fun clearLocalData() {
+        local.clearAll()
+    }
+
     // --- Tek yazar ---
 
     private suspend fun processMutations() {

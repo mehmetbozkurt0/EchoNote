@@ -142,6 +142,14 @@ class NotesLocalStore(
     }
 
     /**
+     * Tüm yerel veriyi siler. Çıkış yapılırken çağrılır: aksi halde bir sonraki hesap,
+     * öncekinin notlarını yerelde görürdü — RLS'i uygulama içinden delen bir boşluk.
+     */
+    suspend fun clearAll(): Unit = withContext(dispatcher) {
+        queries.deleteAll()
+    }
+
+    /**
      * Uzağa yazma başarılı olduktan sonra kirli bayrağını kaldırır — ama yalnızca
      * satır o sırada değişmediyse. Kullanıcı ağ beklerken yazmaya devam ettiyse
      * `updated_at` farklı olur ve satır kirli kalır, yeni harfler sonraki push'ta gider.

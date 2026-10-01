@@ -97,6 +97,20 @@ class NotesLocalStoreTest {
     }
 
     @Test
+    fun clearAllTumYerelVeriyiSilerCikisIcin() = runTest {
+        val store = storeFor(inMemoryDriver())
+        store.upsertLocal(testNote("a"))
+        store.upsertFromRemote(testNote("b"))
+        store.markPendingDelete("b")
+
+        store.clearAll()
+
+        assertTrue(store.observeVisible().first().isEmpty())
+        assertEquals(0, store.observePendingPushCount().first(), "Tombstone'lar da gitmeli")
+        assertNull(store.findById("a"))
+    }
+
+    @Test
     fun uzaktaOlmayanSenkronSatirlarSilinirBekleyenlerKorunur() = runTest {
         val store = storeFor(inMemoryDriver())
         // Senkron olmuş satır
