@@ -4,6 +4,7 @@ import com.russhwolf.settings.PropertiesSettings
 import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class AppSettingsTest {
@@ -28,5 +29,23 @@ class AppSettingsTest {
 
         // Yeni örnek = uygulamanın yeniden başlatılması.
         assertEquals("kalici-anahtar", AppSettings(backing).geminiApiKey.value)
+    }
+
+    @Test
+    fun cihazKimligiYenidenBaslatmayiAtlatir() {
+        // Bu kimlik her açılışta değişirse device_id'ye dayanan çakışma çözümü çöker.
+        val backing = PropertiesSettings(Properties())
+        val ilk = AppSettings(backing).deviceId
+
+        assertTrue(ilk.isNotBlank())
+        assertEquals(ilk, AppSettings(backing).deviceId, "Yeniden başlatma kimliği değiştirmemeli")
+    }
+
+    @Test
+    fun ayriKurulumlarAyriKimlikAlir() {
+        val a = AppSettings(PropertiesSettings(Properties())).deviceId
+        val b = AppSettings(PropertiesSettings(Properties())).deviceId
+
+        assertNotEquals(a, b, "İki cihaz aynı kimliği almamalı")
     }
 }

@@ -1,5 +1,6 @@
 package com.echonote.echonote
 
+import com.echonote.echonote.model.newDeviceId
 import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +21,18 @@ class AppSettings(private val settings: Settings = Settings()) {
         val trimmed = value.trim()
         if (trimmed.isEmpty()) settings.remove(KEY_GEMINI) else settings.putString(KEY_GEMINI, trimmed)
         _geminiApiKey.value = trimmed
+    }
+
+    /**
+     * Bu kurulumun kalıcı cihaz kimliği. İlk okumada üretilir, sonra diskten gelir.
+     *
+     * Eskiden her açılışta yeniden üretiliyordu; `device_id` çakışma çözümünün girdisi
+     * olduğu için bu, aynı cihazı her açılışta yabancı bir cihaz gibi gösteriyordu.
+     * Oturum kapatma bunu **silmez**: kimlik hesaba değil kuruluma ait.
+     */
+    val deviceId: String by lazy {
+        settings.getStringOrNull(KEY_DEVICE_ID)
+            ?: newDeviceId(getPlatform().name).also { settings.putString(KEY_DEVICE_ID, it) }
     }
 
     // --- Görünüm ---
@@ -68,6 +81,7 @@ class AppSettings(private val settings: Settings = Settings()) {
     }
 
     private companion object {
+        const val KEY_DEVICE_ID = "device_id"
         const val KEY_GEMINI = "gemini_api_key"
         const val KEY_THEME = "theme_mode"
         const val KEY_FONT_SCALE = "font_scale"

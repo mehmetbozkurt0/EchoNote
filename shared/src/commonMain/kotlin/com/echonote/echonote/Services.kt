@@ -138,3 +138,5 @@ fun createNotesRepository(): NotesRepository = AppServices.notesRepository
 fun createAiService(): AiService = AppServices.aiService
 
 fun createAuthService(): AuthService = AppServices.authService
+
+fun createDeviceId(): String = AppServices.settings.deviceId

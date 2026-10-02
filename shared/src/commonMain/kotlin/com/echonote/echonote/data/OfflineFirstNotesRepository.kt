@@ -20,7 +20,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
 
 /**
  * Offline-first senkron motoru. **Yerel depo tek gerçek kaynaktır**, Supabase senkron
@@ -45,6 +47,8 @@ class OfflineFirstNotesRepository(
      * görünürken senkronun koşması, kullanıcının yerel kopyasını yok etmeye yeter.
      */
     private val isAuthenticated: StateFlow<Boolean> = MutableStateFlow(true),
+    /** Testlerin zaman penceresini kontrol edebilmesi için enjekte edilebilir. */
+    private val now: () -> Instant = { @OptIn(ExperimentalTime::class) Clock.System.now() },
 ) : NotesRepository {
 
     private val connection = MutableStateFlow(
@@ -57,6 +61,21 @@ class OfflineFirstNotesRepository(
 
     /** "Outbox'a bak" sinyali; CONFLATED çünkü birikmesi anlamsız. */
     private val pushSignal = Channel<Unit>(Channel.CONFLATED)
+
+    /**
+     * Sunucuya yazılmış ama henüz bir uzak anlık görüntüde **teyit edilmemiş** satırlar:
+     * id → push anı.
+     *
+     * Neden var: uzak anlık görüntü, sorgunun koştuğu andaki sunucu durumunu taşır. O
+     * andan sonra push edilen bir not görüntüde yoktur; [ClearDirty] satırı temiz yaptığı
+     * an [applyRemote] onu "başka cihazda silinmiş" sayıp KALICI SİLER. Gerçekte görülen
+     * bir veri kaybıydı: açılışta bekleyen not sunucuya ve diğer cihaza ulaştı, bu
+     * cihazdan kayboldu.
+     *
+     * Yalnızca tek yazar coroutine'inden (processMutations) okunup yazılır; eşzamanlılık
+     * koruması gerekmez.
+     */
+    private val pushedAwaitingConfirm = mutableMapOf<String, Instant>()
 
     init {
         scope.launch { processMutations() }
@@ -124,8 +143,11 @@ class OfflineFirstNotesRepository(
                     is Mutation.Pin -> local.setPinned(mutation.id, mutation.pinned, nowIsoUtc())
                     is Mutation.PurgeOldTrash -> purgeOldTrash()
                     is Mutation.ApplyRemote -> applyRemote(mutation.notes)
-                    is Mutation.ClearDirty ->
+                    is Mutation.ClearDirty -> {
                         local.clearDirtyIfUnchanged(mutation.id, mutation.sentUpdatedAt)
+                        // Bu satır artık temiz; bayat bir anlık görüntü onu silmesin.
+                        pushedAwaitingConfirm[mutation.id] = now()
+                    }
                     is Mutation.DeleteHard -> local.deleteHard(mutation.id)
                 }
                 pushSignal.trySend(Unit)
@@ -150,8 +172,29 @@ class OfflineFirstNotesRepository(
 
     private suspend fun applyRemote(remoteNotes: List<Note>) {
         remoteNotes.forEach { local.upsertFromRemote(it) }
-        // Uzakta olmayan senkron satırlar başka cihazda silinmiş demektir.
-        local.deleteCleanNotIn(remoteNotes.map { it.id }.toSet())
+        val remoteIds = remoteNotes.mapTo(mutableSetOf()) { it.id }
+        // Uzakta olmayan senkron satırlar başka cihazda silinmiş demektir — ama anlık
+        // görüntü bayat olabilir, az önce push ettiklerimizi silmekten koru.
+        local.deleteCleanNotIn(remoteIds + protectedFromDeletion(remoteIds))
+    }
+
+    /**
+     * Silinmekten korunacak id'ler ve haritanın bakımı.
+     *
+     * Bir id iki yoldan düşer:
+     * - **teyit:** anlık görüntüde görünüyor, tur tamamlandı;
+     * - **zaman aşımı:** [CONFIRM_WINDOW] doldu.
+     *
+     * Zaman aşımı şart: push'tan hemen sonra diğer cihaz notu kalıcı silerse, not bir
+     * daha hiçbir anlık görüntüde görünmez ve koruma kalkmazsa bu cihazdan asla
+     * silinmez. Pencere dolunca normal silme işler, yani durum kendi kendini toparlar.
+     */
+    private fun protectedFromDeletion(remoteIds: Set<String>): Set<String> {
+        val cutoff = now() - CONFIRM_WINDOW
+        pushedAwaitingConfirm.entries.removeAll { (id, pushedAt) ->
+            id in remoteIds || pushedAt < cutoff
+        }
+        return pushedAwaitingConfirm.keys.toSet()
     }
 
     // --- Pull ---
@@ -267,5 +310,8 @@ class OfflineFirstNotesRepository(
         const val INITIAL_BACKOFF_MS = 1_000L
         const val MAX_BACKOFF_MS = 30_000L
         const val TRASH_RETENTION_DAYS = 30
+
+        /** Push edilen satırın uzak anlık görüntüde teyit edilmesi için tanınan süre. */
+        val CONFIRM_WINDOW = 60.seconds
     }
 }

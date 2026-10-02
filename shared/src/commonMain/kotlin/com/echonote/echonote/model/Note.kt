@@ -1,6 +1,5 @@
 package com.echonote.echonote.model
 
-import com.echonote.echonote.getPlatform
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Clock
@@ -59,13 +58,17 @@ fun newNoteId(): String = Uuid.random().toString()
 fun nowIsoUtc(): String = Clock.System.now().toString()
 
 /**
- * Bu süreç boyunca sabit cihaz kimliği; her yerel yazmada device_id kolonuna işlenir.
- * (Kalıcı depolama katmanı eklendiğinde diske taşınabilir.)
+ * Yeni bir cihaz kimliği üretir. **Sadece bir kez** çağrılmalı ve sonucu diske
+ * yazılmalıdır (bkz. `AppSettings.deviceId`).
+ *
+ * Kimlik her açılışta yenilenirse `device_id` kolonu işe yaramaz hale gelir: çakışma
+ * çözümü "bu yazmayı hangi cihaz yaptı" sorusuna dayanıyor ve aynı telefon her
+ * açılışta kendini yeni bir cihaz gibi tanıtırsa bu soru cevapsız kalır.
  */
 @OptIn(ExperimentalUuidApi::class)
-val localDeviceId: String by lazy {
-    val platform = getPlatform().name.filter { it.isLetterOrDigit() }.take(16)
-    "$platform-${Uuid.random().toString().take(8)}"
+fun newDeviceId(platformName: String): String {
+    val platform = platformName.filter { it.isLetterOrDigit() }.take(16)
+    return "$platform-${Uuid.random().toString().take(8)}"
 }
 
 /**

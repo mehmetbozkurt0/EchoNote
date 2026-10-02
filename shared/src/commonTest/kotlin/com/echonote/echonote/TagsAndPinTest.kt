@@ -5,6 +5,7 @@ import com.echonote.echonote.model.normalizeTag
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -81,7 +82,7 @@ class TagsAndPinTest {
     @Test
     fun ayniEtiketIkiKezEklenmez() = runTest(dispatcher) {
         val repo = FakeNotesRepository()
-        val vm = NotesViewModel(repo, FakeAiService())
+        val vm = NotesViewModel(repo, FakeAiService(), deviceId = "test-cihaz")
         repo.emitNotes(listOf(note("a", listOf("iş"))))
         advanceUntilIdle()
         vm.selectNote("a")
@@ -95,7 +96,7 @@ class TagsAndPinTest {
     @Test
     fun etiketEklenirVeNormallestirilmisHaliyleKaydedilir() = runTest(dispatcher) {
         val repo = FakeNotesRepository()
-        val vm = NotesViewModel(repo, FakeAiService())
+        val vm = NotesViewModel(repo, FakeAiService(), deviceId = "test-cihaz")
         repo.emitNotes(listOf(note("a")))
         advanceUntilIdle()
         vm.selectNote("a")
@@ -109,7 +110,7 @@ class TagsAndPinTest {
     @Test
     fun etiketKaldirilir() = runTest(dispatcher) {
         val repo = FakeNotesRepository()
-        val vm = NotesViewModel(repo, FakeAiService())
+        val vm = NotesViewModel(repo, FakeAiService(), deviceId = "test-cihaz")
         repo.emitNotes(listOf(note("a", listOf("iş", "ev"))))
         advanceUntilIdle()
         vm.selectNote("a")
@@ -123,7 +124,7 @@ class TagsAndPinTest {
     @Test
     fun sabitlemeDepoyaIletilir() = runTest(dispatcher) {
         val repo = FakeNotesRepository()
-        val vm = NotesViewModel(repo, FakeAiService())
+        val vm = NotesViewModel(repo, FakeAiService(), deviceId = "test-cihaz")
         repo.emitNotes(listOf(note("a", pinned = false)))
         advanceUntilIdle()
 
@@ -137,12 +138,13 @@ class TagsAndPinTest {
     fun yazarkenEtiketVeSabitlemeKaybolmaz() = runTest(dispatcher) {
         // persistEditor yeni bir Note kuruyor; etiketleri taşımazsa yazmak onları siler.
         val repo = FakeNotesRepository()
-        val vm = NotesViewModel(repo, FakeAiService())
+        val vm = NotesViewModel(repo, FakeAiService(), deviceId = "test-cihaz")
         repo.emitNotes(listOf(note("a", listOf("iş"), pinned = true)))
         advanceUntilIdle()
         vm.selectNote("a")
 
         vm.updateContent("yeni metin")
+        advanceTimeBy(500)
         runCurrent()
 
         val saved = repo.saved.last()

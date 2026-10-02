@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.ExperimentalTime
 import com.echonote.echonote.db.Note as DbNote
 
@@ -89,15 +90,22 @@ class NotesLocalStore(
     /**
      * Kullanıcı düzenlemesi: satırı yazar ve kirli işaretler. Çağrıldığı anda diske
      * iner — dayanıklılık buradan gelir, ağdan değil.
+     *
+     * `updated_at` istemci saatinden geliyor ve çakışma çözümünün tek girdisi o. Saat
+     * geri giderse (NTP düzeltmesi, kullanıcı saati elle değiştirir, yaz saati) yeni
+     * düzenleme eskisinden **eski** damgalanır ve bir sonraki pull'da kendi yazdığını
+     * geri alır. [monotonicStamp] damganın satır bazında asla geri gitmemesini sağlar.
      */
     suspend fun upsertLocal(note: Note): Unit = withContext(dispatcher) {
         queries.transaction {
-            if (queries.selectById(note.id).executeAsOneOrNull() == null) {
+            val existing = queries.selectById(note.id).executeAsOneOrNull()
+            val stamp = monotonicStamp(note.updatedAt, existing?.updated_at)
+            if (existing == null) {
                 queries.insertNote(
                     id = note.id,
                     title = note.title,
                     content = note.content,
-                    updated_at = note.updatedAt,
+                    updated_at = stamp,
                     device_id = note.deviceId,
                     dirty = true,
                     pending_delete = false,
@@ -109,7 +117,7 @@ class NotesLocalStore(
                 queries.updateNoteRow(
                     title = note.title,
                     content = note.content,
-                    updated_at = note.updatedAt,
+                    updated_at = stamp,
                     device_id = note.deviceId,
                     dirty = true,
                     deleted_at = note.deletedAt,
@@ -222,6 +230,24 @@ class NotesLocalStore(
 
 /** Outbox girdisi: ya uzağa yazılacak bir not ya da uzaktan silinecek bir tombstone. */
 data class PendingNote(val note: Note, val isDelete: Boolean)
+
+/**
+ * Satır bazında monoton `updated_at`: aday damga mevcut damgadan yeni değilse
+ * mevcut + 1 ms döndürülür.
+ *
+ * Neden sunucu saatine geçmedik: bu uygulama çevrimdışı-önce. Damgayı sunucu
+ * vurursa kazanan "en son yazan" değil "sunucuya en son ulaşan" olur; günlerce
+ * çevrimdışı kalmış bir cihaz bağlandığında bayat notu taze damgalanır ve diğer
+ * cihazın daha yeni düzenlemesini ezer. Yazarlık zamanını koruyup yalnızca geri
+ * gitmesini engellemek, saat kaymasını çözerken bu gerilemeyi getirmiyor.
+ */
+@OptIn(ExperimentalTime::class)
+internal fun monotonicStamp(candidate: String, existing: String?): String {
+    if (existing == null) return candidate
+    if (isStrictlyNewer(candidate, existing)) return candidate
+    val reference = parseTimestampOrNull(existing) ?: return candidate
+    return (reference + 1.milliseconds).toString()
+}
 
 /**
  * [candidate] gerçekten [reference]'tan yeni mi. Damgalardan biri çözümlenemiyorsa

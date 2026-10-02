@@ -9,7 +9,6 @@ import com.echonote.echonote.data.SyncState
 import com.echonote.echonote.model.Note
 import com.echonote.echonote.model.deriveTitle
 import com.echonote.echonote.model.exportFileName
-import com.echonote.echonote.model.localDeviceId
 import com.echonote.echonote.model.newNoteId
 import com.echonote.echonote.model.normalizeTag
 import com.echonote.echonote.model.nowIsoUtc
@@ -106,6 +105,8 @@ internal fun String.searchKey(): String = buildString(length) {
 class NotesViewModel(
     private val repository: NotesRepository = createNotesRepository(),
     private val aiService: AiService = createAiService(),
+    /** Yazdığımız her satıra işlenir; kalıcıdır, bkz. `AppSettings.deviceId`. */
+    private val deviceId: String = createDeviceId(),
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NotesUiState())
@@ -116,8 +117,18 @@ class NotesViewModel(
 
     private var aiJob: Job? = null
 
-    /** Kapanışta outbox'ı uzağa boşaltma denemesi; [onCleared] kaydı iptal eder. */
-    private val unregisterFlushHook = SaveCoordinator.register(repository::flushOutbox)
+    /** Bekleyen (geciktirilmiş) editör yazması; bkz. [schedulePersist]. */
+    private var persistJob: Job? = null
+
+    /**
+     * Kapanışta önce bekleyen editör yazmasını diske indirir, sonra outbox'ı uzağa
+     * boşaltmayı dener. Sıra önemli: boşaltılmamış bir yazma uzağa gidemez.
+     * [onCleared] kaydı iptal eder.
+     */
+    private val unregisterFlushHook = SaveCoordinator.register {
+        persistNow()
+        repository.flushOutbox()
+    }
 
     init {
         viewModelScope.launch {
@@ -139,6 +150,11 @@ class NotesViewModel(
     }
 
     override fun onCleared() {
+        // viewModelScope burada iptal edilmek üzere: bekleyen yazmayı kaçırmamak için
+        // depoya doğrudan (coroutine'siz) gönderiyoruz.
+        persistJob?.cancel()
+        persistJob = null
+        persistEditor()
         unregisterFlushHook()
         super.onCleared()
     }
@@ -156,7 +172,7 @@ class NotesViewModel(
             title = "Yeni Not",
             content = "# Yeni Not\n\n",
             updatedAt = nowIsoUtc(),
-            deviceId = localDeviceId,
+            deviceId = deviceId,
         )
         repository.saveNote(note)
         // Editör anında açılır; not listeye DB akışıyla birkaç ms içinde düşer.
@@ -192,6 +208,8 @@ class NotesViewModel(
     private fun moveToTrash(id: String) {
         if (_uiState.value.streamingNoteId == id) stopStreaming()
         undoStacks.remove(id)
+        // Bekleyen yazma iptal edilmezse 400 ms sonra silinen notu geri yazar.
+        if (_uiState.value.selectedNoteId == id) cancelPendingPersist()
         repository.deleteNote(id)
         if (_uiState.value.selectedNoteId == id) {
             // Seçim kalkar; gelen liste ile komşu nota geçilir.
@@ -207,7 +225,7 @@ class NotesViewModel(
         // AI aynı nota yazarken kullanıcı düzenlemesi yok sayılır (editör zaten readOnly).
         if (state.streamingNoteId == noteId) return
         _uiState.update { it.copy(editorContent = newContent) }
-        persistEditor()
+        schedulePersist()
     }
 
     /** Okuma modunda bir görev kutusuna dokunuldu: ham metni yeniden yazar. */
@@ -217,13 +235,13 @@ class NotesViewModel(
         val updated = toggleTask(state.editorContent, lineIndex)
         if (updated == state.editorContent) return
         _uiState.update { it.copy(editorContent = updated) }
-        persistEditor()
+        persistNow()
     }
 
     fun updateTitle(newTitle: String) {
         if (_uiState.value.selectedNoteId == null) return
         _uiState.update { it.copy(editorTitle = newTitle) }
-        persistEditor()
+        schedulePersist()
     }
 
     fun expandSelected() = runAi(AiAction.EXPAND)
@@ -241,7 +259,7 @@ class NotesViewModel(
         if (state.streamingNoteId == noteId) return
         val previous = undoStacks[noteId]?.removeLastOrNull() ?: return
         _uiState.update { it.copy(editorContent = previous, canUndo = canUndoFor(noteId)) }
-        persistEditor()
+        persistNow()
     }
 
     /**
@@ -321,7 +339,7 @@ class NotesViewModel(
                     // periyodik yaz, kesin yazma finally'de.
                     if (++sinceSave >= STREAM_SAVE_EVERY_TOKENS) {
                         sinceSave = 0
-                        persistEditor()
+                        persistNow()
                     }
                 }
             } catch (e: CancellationException) {
@@ -331,7 +349,7 @@ class NotesViewModel(
             } finally {
                 _uiState.update { it.copy(streamingNoteId = null, canUndo = canUndoFor(noteId)) }
                 // Tamamlanan ya da "Durdur" ile yarım kalan içeriği kalıcılaştır.
-                if (_uiState.value.selectedNoteId == noteId) persistEditor()
+                if (_uiState.value.selectedNoteId == noteId) persistNow()
             }
         }
     }
@@ -373,6 +391,40 @@ class NotesViewModel(
         }
     }
 
+    /**
+     * Yazmayı geciktirir: her tuş vuruşunda değil, yazmaya ara verilince diske iner.
+     *
+     * Neden: her vuruşta `saveNote` çağrılıyordu ve bu tek bir SQLite yazmasından
+     * ibaret değil — yazma `selectVisible()` akışını tetikliyor, **tüm** notlar
+     * yeniden sorgulanıp dönüştürülüyor (satır başına JSON etiket çözümü), ardından
+     * liste yeniden filtrelenip sıralanıyor ve besteleniyor. Ölçümde bu, 12 karakterlik
+     * boş bir notta bile p90 = 36 ms'lik bir kare maliyeti demekti.
+     *
+     * Dayanıklılık: gecikme [PERSIST_DEBOUNCE_MS]; bu pencere [persistNow] ile kapanış,
+     * not değiştirme, geri alma ve AI yollarında zaten boşaltılıyor. Aynı fikir AI
+     * akışında [STREAM_SAVE_EVERY_TOKENS] olarak hâlihazırda uygulanıyordu.
+     */
+    private fun schedulePersist() {
+        persistJob?.cancel()
+        persistJob = viewModelScope.launch {
+            delay(PERSIST_DEBOUNCE_MS)
+            persistEditor()
+        }
+    }
+
+    /** Bekleyen yazmayı hemen diske indirir. */
+    private fun persistNow() {
+        persistJob?.cancel()
+        persistJob = null
+        persistEditor()
+    }
+
+    /** Bekleyen yazmayı **yazmadan** iptal eder; silme yolunda şart. */
+    private fun cancelPendingPersist() {
+        persistJob?.cancel()
+        persistJob = null
+    }
+
     /** Editördeki hâli yerel depoya yazar; anında kalıcı olur, senkron veri katmanında. */
     private fun persistEditor() {
         val state = _uiState.value
@@ -386,7 +438,7 @@ class NotesViewModel(
                 title = state.editorTitle.ifBlank { deriveTitle(state.editorContent) },
                 content = state.editorContent,
                 updatedAt = nowIsoUtc(),
-                deviceId = localDeviceId,
+                deviceId = deviceId,
                 // Etiket ve sabitleme editörde düzenlenmiyor; yazarken kaybolmasınlar.
                 tags = existing?.tags.orEmpty(),
                 pinned = existing?.pinned ?: false,
@@ -397,6 +449,10 @@ class NotesViewModel(
     // --- Yardımcılar ---
 
     private fun openInEditor(note: Note) {
+        // Önceki notun bekleyen yazması, seçim değişmeden önce diske inmeli: sonra
+        // inerse yeni notun içeriğiyle eski nota yazar.
+        val current = _uiState.value.selectedNoteId
+        if (current != null && current != note.id) persistNow()
         _uiState.update {
             it.copy(
                 selectedNoteId = note.id,
@@ -421,5 +477,8 @@ class NotesViewModel(
         const val TYPEWRITER_DELAY_MS = 45L
         const val MAX_UNDO_DEPTH = 20
         const val STREAM_SAVE_EVERY_TOKENS = 25
+
+        /** Yazmaya ara verildikten sonra diske inme gecikmesi. */
+        const val PERSIST_DEBOUNCE_MS = 400L
     }
 }

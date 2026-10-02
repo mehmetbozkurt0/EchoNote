@@ -6,6 +6,7 @@ import com.echonote.echonote.model.Note
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -38,7 +39,7 @@ class NotesViewModelTest {
         Note(id = id, title = title, content = content, updatedAt = "2026-01-01T00:00:00Z", deviceId = "test")
 
     private fun viewModel(repo: FakeNotesRepository, ai: FakeAiService = FakeAiService()) =
-        NotesViewModel(repository = repo, aiService = ai)
+        NotesViewModel(repository = repo, aiService = ai, deviceId = "test-cihaz")
 
     // --- Editör draft'ı: yerel depoya yazıp geri okumanın gecikmesini gizler ---
 
@@ -72,6 +73,8 @@ class NotesViewModelTest {
 
         vm.updateTitle("Yeni Başlık")
         vm.updateContent("yeni içerik")
+        // Yazma artık geciktiriliyor (bkz. PersistDebounceTest); ara verilmesini bekle.
+        advanceTimeBy(500)
         runCurrent()
 
         val last = repo.saved.last()
