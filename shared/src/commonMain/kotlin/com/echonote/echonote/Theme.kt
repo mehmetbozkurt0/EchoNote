@@ -54,75 +54,101 @@ import androidx.compose.ui.unit.dp
  * kısmını yiyordu; bu palet düz yüzeylerle aynı derinlik hissini çok daha ucuza veriyor.
  */
 data class EchoPalette(
-    /** En arka zemin. */
+    /** `surface` — en arka zemin. */
     val canvas: Color,
-    /** Gruplanmış listeler, gezinme çubuğu, giriş alanları. */
+    /** `surface-container-lowest` — editörün üstveri şeridi gibi en çukur yüzeyler. */
+    val surfaceLowest: Color,
+    /** `surface-container-low` — giriş alanları, gezinme, pasif çipler. */
     val surfaceLow: Color,
-    /** Not kartları, sayfalar. */
+    /** `surface-container` — not kartları. */
     val surface: Color,
-    /** Kalkık yüzeyler: diyalog, açılır menü, seçili durum. */
+    /** `surface-container-high` — kalkık yüzeyler, seçili sekme, menü. */
     val surfaceHigh: Color,
-    /** Birincil eylem rengi (periwinkle). */
+    /** `surface-container-highest` — kart içindeki etiket çipleri. */
+    val surfaceHighest: Color,
+    /** `primary-container` — dolu düğme, FAB, imleç, etkin çip dolgusu. */
     val primary: Color,
-    /** Birincil rengin üzerindeki metin. */
+    /** `on-primary-container` — birincil dolgunun üzerindeki metin. */
     val onPrimary: Color,
-    /** Birincil rengin parlak tonu: bağlantı, vurgulu metin. */
+    /** `primary` — parlak periwinkle: etkin metin, bağlantı, vurgulu damga. */
     val primaryBright: Color,
-    /** Sıcak karşı ağırlık (terracotta): sabitlenen not, önemli işaret. */
+    /** `secondary` — kart etiketlerinin metni. */
+    val secondary: Color,
+    /** `secondary-fixed` — senkron noktası gibi en parlak vurgular. */
+    val secondaryBright: Color,
+    /** `tertiary` — sıcak karşı ağırlık: sabitleme, rozet. */
     val accent: Color,
-    /** Senkron nabzı (seafoam). */
-    val sync: Color,
-    /** Yıkıcı eylem. */
+    /** `error`. */
     val danger: Color,
+    /** `on-surface` — ana metin. */
     val textPrimary: Color,
+    /** `on-surface-variant` — gövde/ikincil metin. */
     val textSecondary: Color,
+    /** `outline` — üstveri, ikon ve yer tutucu gibi en sönük metinler. */
+    val textMuted: Color,
     /** Saç teli kenarlık; sert çizgi yerine hafif bir çevre parıltısı. */
     val outline: Color,
     /** Odaklı/sabitlenmiş öğelerin kenarlığı. */
     val outlineStrong: Color,
+    /** `outline-variant` — ayraç noktaları, ince bölücüler. */
+    val outlineVariant: Color,
     val codeBackground: Color,
     val isLight: Boolean,
 )
 
+/**
+ * Koyu palet — DESIGN.md'deki jetonların birebir karşılığı. Değerler tasarımdan
+ * alındı; "yaklaşık aynı renk" yerine aynı renk.
+ */
 val DarkPalette = EchoPalette(
     canvas = Color(0xFF0D1323),
+    surfaceLowest = Color(0xFF080E1D),
     surfaceLow = Color(0xFF151B2B),
     surface = Color(0xFF191F30),
     surfaceHigh = Color(0xFF242A3B),
+    surfaceHighest = Color(0xFF2F3446),
     primary = Color(0xFF818CF8),
-    onPrimary = Color(0xFF0C1222),
+    onPrimary = Color(0xFF101B8A),
     primaryBright = Color(0xFFBDC2FF),
+    secondary = Color(0xFFB8C4FF),
+    secondaryBright = Color(0xFFDDE1FF),
     accent = Color(0xFFFFB783),
-    sync = Color(0xFF2DD4BF),
     danger = Color(0xFFFFB4AB),
     textPrimary = Color(0xFFDDE2F9),
-    textSecondary = Color(0xFF94A3B8),
+    textSecondary = Color(0xFFC6C5D5),
+    textMuted = Color(0xFF908F9E),
     outline = Color.White.copy(alpha = 0.06f),
     outlineStrong = Color(0xFFA5B4FC).copy(alpha = 0.25f),
+    outlineVariant = Color(0xFF454653),
     codeBackground = Color.White.copy(alpha = 0.07f),
     isLight = false,
 )
 
 /**
- * Açık varyant. Tasarım sistemi yalnızca koyu temayı tanımlıyor; bu, aynı tonal mantığın
- * ters çevrilmişi: zemin en açık, yüzeyler basamak basamak koyulaşıyor. Periwinkle açık
- * zeminde okunmadığı için koyulaştırıldı, terracotta da öyle.
+ * Açık varyant. Tasarım sistemi yalnızca koyu temayı tanımlıyor; bu, aynı tonal
+ * basamakların ters çevrilmişi. Periwinkle ve terracotta açık zeminde okunmadığı için
+ * koyulaştırıldı.
  */
 val LightPalette = EchoPalette(
     canvas = Color(0xFFF7F8FC),
+    surfaceLowest = Color(0xFFFFFFFF),
     surfaceLow = Color(0xFFEFF1F8),
     surface = Color(0xFFFFFFFF),
     surfaceHigh = Color(0xFFE6E9F4),
+    surfaceHighest = Color(0xFFDCE0EE),
     primary = Color(0xFF4953BC),
     onPrimary = Color(0xFFFFFFFF),
     primaryBright = Color(0xFF2F3AA3),
+    secondary = Color(0xFF3B4794),
+    secondaryBright = Color(0xFF1B2470),
     accent = Color(0xFFB25A12),
-    sync = Color(0xFF0F766E),
     danger = Color(0xFFB3261E),
     textPrimary = Color(0xFF151A28),
-    textSecondary = Color(0xFF5A6478),
+    textSecondary = Color(0xFF3F4656),
+    textMuted = Color(0xFF6B7285),
     outline = Color.Black.copy(alpha = 0.08f),
     outlineStrong = Color(0xFF4953BC).copy(alpha = 0.35f),
+    outlineVariant = Color(0xFFC3C7D6),
     codeBackground = Color.Black.copy(alpha = 0.06f),
     isLight = true,
 )

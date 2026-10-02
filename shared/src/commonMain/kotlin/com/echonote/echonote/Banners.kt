@@ -56,7 +56,7 @@ fun SyncStatusChip(sync: SyncState, modifier: Modifier = Modifier) {
             if (pending > 0) {
                 Triple("Kaydedildi · senkron bekliyor", EchoColors.primary, true)
             } else {
-                Triple("Senkron", EchoColors.sync, false)
+                Triple("Senkron", EchoColors.secondaryBright, false)
             }
     }
 

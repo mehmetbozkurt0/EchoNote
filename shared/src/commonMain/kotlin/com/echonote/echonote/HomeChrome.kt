@@ -17,15 +17,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.Sell
 import androidx.compose.material3.Icon
@@ -37,6 +42,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -59,19 +66,40 @@ enum class HomeTab(val label: String, val icon: ImageVector) {
  * olduğu için oraya ikinci bir giriş koymadım — aynı yere iki kapı kafa karıştırır.
  */
 @Composable
-fun HomeHeader(sync: SyncState, modifier: Modifier = Modifier) {
+fun HomeHeader(sync: SyncState, onOpenAccount: (() -> Unit)? = null, modifier: Modifier = Modifier) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 10.dp),
+        modifier = modifier.fillMaxWidth().height(64.dp).padding(horizontal = ScreenMargin),
     ) {
         Text(
             text = "echonote",
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             color = EchoColors.textPrimary,
         )
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(8.dp))
         SyncPill(sync)
+        Spacer(Modifier.weight(1f))
+        if (onOpenAccount != null) {
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .background(EchoColors.primary, EchoShapes.pill)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onOpenAccount,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = "Hesap ve ayarlar",
+                    tint = EchoColors.onPrimary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
     }
 }
 
@@ -81,11 +109,11 @@ fun HomeHeader(sync: SyncState, modifier: Modifier = Modifier) {
  */
 @Composable
 fun SyncPill(sync: SyncState, modifier: Modifier = Modifier) {
-    val (label, color) = when {
-        sync.pendingCount > 0L -> "${sync.pendingCount} bekliyor" to EchoColors.accent
-        sync.connection == ConnectionState.Live -> "senkronize" to EchoColors.sync
-        sync.connection == ConnectionState.OfflineMode -> "yerel" to EchoColors.textSecondary
-        else -> "bağlanıyor" to EchoColors.textSecondary
+    val label = when {
+        sync.pendingCount > 0L -> sync.pendingCount.toString() + " bekliyor"
+        sync.connection == ConnectionState.Live -> "senkronize"
+        sync.connection == ConnectionState.OfflineMode -> "yerel"
+        else -> "bağlanıyor"
     }
     val breathing = rememberInfiniteTransition(label = "syncPulse")
     val dotAlpha by breathing.animateFloat(
@@ -97,23 +125,33 @@ fun SyncPill(sync: SyncState, modifier: Modifier = Modifier) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
-            .echoSurface(EchoShapes.pill, fill = EchoColors.surfaceLow)
-            .padding(horizontal = 11.dp, vertical = 5.dp),
+            .clip(EchoShapes.pill)
+            .background(EchoColors.surfaceHigh)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
-        Box(Modifier.size(7.dp).alpha(dotAlpha).background(color, EchoShapes.pill))
-        Spacer(Modifier.width(7.dp))
+        Box(
+            Modifier
+                .size(6.dp)
+                .alpha(dotAlpha)
+                .background(
+                    if (sync.pendingCount > 0L) EchoColors.accent else EchoColors.secondaryBright,
+                    EchoShapes.pill,
+                ),
+        )
+        Spacer(Modifier.width(6.dp))
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = EchoColors.textSecondary,
+            style = MaterialTheme.typography.labelSmall,
+            color = EchoColors.secondary,
         )
     }
 }
 
 /**
- * Alt gezinme. Tasarımda bulanık (blur) bir zemin var; burada opak yüzey kullanıldı —
- * cihazda ölçtüğümüzde yarı saydam katmanlar kare başına ölçülebilir maliyet
- * çıkarıyordu ve bu çubuk her karede ekranda.
+ * Alt gezinme: 80dp yükseklik, 22dp ikonlar, etkin sekme hap zeminde.
+ *
+ * Tasarımda zemin yarı saydam + blur; burada opak. Cihazda ölçtüğümüzde yarı saydam
+ * katmanlar kare başına ölçülebilir maliyet çıkarıyordu ve bu çubuk her karede ekranda.
  */
 @Composable
 fun HomeBottomBar(
@@ -123,11 +161,12 @@ fun HomeBottomBar(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        horizontalArrangement = Arrangement.SpaceAround,
         modifier = modifier
             .fillMaxWidth()
-            .background(EchoColors.surfaceLow)
-            .padding(top = 8.dp, bottom = 10.dp),
+            .height(80.dp)
+            .background(EchoColors.canvas)
+            .padding(horizontal = ScreenMargin),
     ) {
         HomeTab.entries.forEach { tab -> BottomBarItem(tab, tab == current) { onSelect(tab) } }
     }
@@ -135,58 +174,56 @@ fun HomeBottomBar(
 
 @Composable
 private fun BottomBarItem(tab: HomeTab, active: Boolean, onClick: () -> Unit) {
-    val tint by animateColorAsState(
-        targetValue = if (active) EchoColors.primaryBright else EchoColors.textSecondary,
-        animationSpec = tween(180),
-        label = "navTint",
-    )
+    val tint = if (active) EchoColors.primary else EchoColors.textSecondary
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
         modifier = Modifier
+            .clip(EchoShapes.pill)
+            .background(if (active) EchoColors.surfaceHigh else Color.Transparent)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick,
             )
-            .padding(horizontal = 18.dp, vertical = 4.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Box(
-            Modifier
-                .background(
-                    color = if (active) EchoColors.primary.copy(alpha = 0.15f) else Color.Transparent,
-                    shape = EchoShapes.pill,
-                )
-                .padding(horizontal = 18.dp, vertical = 5.dp),
-        ) {
-            Icon(
-                imageVector = tab.icon,
-                contentDescription = tab.label,
-                tint = tint,
-                modifier = Modifier.size(21.dp),
-            )
-        }
-        Spacer(Modifier.size(4.dp))
+        Icon(
+            imageVector = tab.icon,
+            contentDescription = tab.label,
+            tint = tint,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.height(4.dp))
         Text(text = tab.label, style = MaterialTheme.typography.labelSmall, color = tint)
     }
 }
 
-/** Yeni not: tasarımdaki yüzen periwinkle düğme. */
+/** Yeni not: 56dp periwinkle hap, sağ üstünde terracotta rozet. */
 @Composable
 fun NewNoteFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val interaction = remember { MutableInteractionSource() }
-    Box(
-        modifier = modifier
-            .pressScale(interaction)
-            .size(60.dp)
-            .background(EchoColors.primary, EchoShapes.pill)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Add,
-            contentDescription = "Yeni not",
-            tint = EchoColors.onPrimary,
-            modifier = Modifier.size(26.dp),
+    Box(modifier.size(62.dp), contentAlignment = Alignment.BottomStart) {
+        Box(
+            Modifier
+                .pressScale(interaction)
+                .size(56.dp)
+                .background(EchoColors.primary, EchoShapes.pill)
+                .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Yeni not",
+                tint = EchoColors.onPrimary,
+                modifier = Modifier.size(28.dp),
+            )
+        }
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .size(12.dp)
+                .background(EchoColors.accent, EchoShapes.pill),
         )
     }
 }
@@ -200,18 +237,24 @@ fun NewNoteFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
  */
 @Composable
 fun StorageFootnote(modifier: Modifier = Modifier) {
+    val pulse = rememberInfiniteTransition(label = "footnote")
+    val dotAlpha by pulse.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1400), RepeatMode.Reverse),
+        label = "footnoteDot",
+    )
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
-        modifier = modifier.fillMaxWidth().padding(vertical = 10.dp),
+        modifier = modifier.fillMaxWidth().padding(vertical = 24.dp),
     ) {
-        Box(Modifier.size(5.dp).background(EchoColors.textSecondary.copy(alpha = 0.6f), EchoShapes.pill))
+        Box(Modifier.size(6.dp).alpha(dotAlpha).background(EchoColors.secondaryBright, EchoShapes.pill))
         Spacer(Modifier.width(8.dp))
         Text(
-            text = "cihazda saklanır · hesabınla eşitlenir",
+            text = "cihazda saklanır • hesabınla eşitlenir",
             style = MaterialTheme.typography.labelSmall,
-            color = EchoColors.textSecondary.copy(alpha = 0.75f),
-            textAlign = TextAlign.Center,
+            color = EchoColors.textMuted,
         )
     }
 }
@@ -293,43 +336,136 @@ fun TagsPane(
 }
 
 /**
- * Masaüstü sol şeridi: marka, yeni not, sekmeler, altta senkron durumu.
- *
- * Alt gezinme çubuğunun geniş ekrandaki karşılığı. Fareyle çalışırken kenardaki
- * hedefler daha yakın ve geniş ekranda dikey alan yataydan değerli.
+ * Masaüstü sol şeridi. Tasarımdan: 256dp genişlik, `surface-container-low` zemin,
+ * 24dp dikey / 20dp yatay dolgu, 12dp köşeli gezinme satırları.
  */
 @Composable
 fun HomeSideRail(
     current: HomeTab,
     onSelect: (HomeTab) -> Unit,
     onNewNote: () -> Unit,
-    sync: SyncState,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
-            .width(236.dp)
+            .width(256.dp)
             .fillMaxHeight()
             .background(EchoColors.surfaceLow)
-            .padding(horizontal = 16.dp, vertical = 18.dp),
+            .padding(horizontal = ScreenMargin, vertical = 24.dp),
     ) {
-        Text(
-            text = "echonote",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = EchoColors.textPrimary,
-            modifier = Modifier.padding(start = 6.dp, bottom = 18.dp),
-        )
-        PrimaryButton(
-            text = "Yeni Not",
-            icon = Icons.Default.Add,
-            onClick = onNewNote,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.size(18.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
+            Box(Modifier.size(10.dp).background(EchoColors.primary, EchoShapes.pill))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "echonote",
+                style = MaterialTheme.typography.headlineSmall,
+                color = EchoColors.textPrimary,
+            )
+        }
+        Spacer(Modifier.height(24.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(EchoShapes.field)
+                .background(EchoColors.primary)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onNewNote,
+                )
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.EditNote,
+                contentDescription = null,
+                tint = EchoColors.onPrimary,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "Yeni Not",
+                style = MaterialTheme.typography.labelLarge,
+                color = EchoColors.onPrimary,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = "Ctrl+N",
+                style = MaterialTheme.typography.labelSmall,
+                color = EchoColors.onPrimary.copy(alpha = 0.8f),
+            )
+        }
+        Spacer(Modifier.height(24.dp))
         HomeTab.entries.forEach { tab -> RailItem(tab, tab == current) { onSelect(tab) } }
         Spacer(Modifier.weight(1f))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(EchoShapes.field)
+                .background(EchoColors.surface)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+        ) {
+            Box(Modifier.size(8.dp).background(EchoColors.secondaryBright, EchoShapes.pill))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "yerel kasa hazır",
+                style = MaterialTheme.typography.labelSmall,
+                color = EchoColors.textSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                imageVector = Icons.Default.CloudDone,
+                contentDescription = null,
+                tint = EchoColors.textMuted,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Masaüstü üst çubuğu: ortada arama, sağda senkron rozeti ve ayarlar.
+ * Tasarımdan: 64dp yükseklik, 32dp yatay dolgu, arama en fazla 576dp.
+ */
+@Composable
+fun DesktopTopBar(
+    sync: SyncState,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    searchFocus: FocusRequester,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.fillMaxWidth().height(64.dp).padding(horizontal = 32.dp),
+    ) {
+        Box(Modifier.weight(1f).widthIn(max = 576.dp)) {
+            SearchField(query = query, onQueryChange = onQueryChange, focusRequester = searchFocus)
+        }
+        Spacer(Modifier.width(16.dp))
         SyncPill(sync)
+        Spacer(Modifier.width(12.dp))
+        Box(
+            Modifier
+                .size(36.dp)
+                .clip(EchoShapes.field)
+                .background(EchoColors.surfaceLow)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onOpenSettings,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Tune,
+                contentDescription = "Ayarlar",
+                tint = EchoColors.textSecondary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
@@ -364,5 +500,45 @@ private fun RailItem(tab: HomeTab, active: Boolean, onClick: () -> Unit) {
         )
         Spacer(Modifier.size(14.dp))
         Text(text = tab.label, style = MaterialTheme.typography.labelLarge, color = tint)
+    }
+}
+
+/**
+ * Masaüstünün en alt durum çubuğu.
+ *
+ * Tasarımda burada "uçtan uca şifreli" de yazıyordu; doğru olmadığı için yok. Kalanlar
+ * gerçek: depo biçimi, metin kodlaması ve not biçimi.
+ */
+@Composable
+fun DesktopStatusBar(noteCount: Int, modifier: Modifier = Modifier) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .background(EchoColors.surfaceLowest)
+            .padding(horizontal = 32.dp, vertical = 6.dp),
+    ) {
+        Box(Modifier.size(6.dp).background(EchoColors.secondaryBright, EchoShapes.pill))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "cihazda saklanır",
+            style = MaterialTheme.typography.labelSmall,
+            color = EchoColors.textMuted,
+        )
+        Spacer(Modifier.weight(1f))
+        listOf("SQLite yerel kasa · $noteCount not", "UTF-8", "Markdown").forEachIndexed { i, label ->
+            if (i > 0) {
+                Text(
+                    text = "  ·  ",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = EchoColors.textMuted.copy(alpha = 0.4f),
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = EchoColors.textMuted,
+            )
+        }
     }
 }

@@ -87,3 +87,32 @@ fun DeleteForeverDialog(
         },
     )
 }
+
+/** Çöp kutusunu toptan boşaltma onayı. */
+@Composable
+fun EmptyTrashDialog(count: Int, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = EchoColors.surfaceHigh,
+        shape = EchoShapes.sheet,
+        title = {
+            Text(
+                text = "Çöp kutusu boşaltılsın mı?",
+                color = EchoColors.danger,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Text(
+                text = "Çöp kutusundaki $count not tüm cihazlardan kalıcı olarak silinecek. " +
+                    "Bu işlemin geri dönüşü yok.",
+                color = EchoColors.textSecondary,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        confirmButton = {
+            GhostButton(text = "Hepsini sil", onClick = onConfirm, accent = EchoColors.danger)
+        },
+        dismissButton = { GhostButton(text = "Vazgeç", onClick = onDismiss) },
+    )
+}

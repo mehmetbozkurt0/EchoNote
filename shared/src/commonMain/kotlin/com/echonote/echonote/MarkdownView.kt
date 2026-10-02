@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -36,6 +37,12 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import com.echonote.echonote.model.relativeTime
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -49,6 +56,9 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun MarkdownView(
     content: String,
+    title: String,
+    tags: List<String>,
+    updatedAt: String,
     onToggleTask: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -56,7 +66,9 @@ fun MarkdownView(
     val blocks = remember(content) { parseMarkdown(content) }
     val scroll = rememberScrollState()
 
-    // İlk paragrafın ilk harfi büyütülür (tasarımdaki "drop cap").
+    // Gövdedeki ilk `#` başlığı zaten üstteki başlık bloğunda gösteriliyor; iki kez
+    // yazdırma.
+    val firstHeading = remember(blocks) { blocks.indexOfFirst { it is MdBlock.Heading } }
     val firstParagraph = remember(blocks) { blocks.indexOfFirst { it is MdBlock.Paragraph } }
 
     Column(modifier.fillMaxWidth()) {
@@ -67,11 +79,18 @@ fun MarkdownView(
                 .fillMaxWidth()
                 .verticalScroll(scroll),
         ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.widthIn(max = ProseMeasure).align(Alignment.CenterHorizontally),
-            ) {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+              val proseWidth = if (maxWidth < ProseMeasure) maxWidth else ProseMeasure
+              Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .width(proseWidth)
+                    .align(Alignment.TopCenter)
+                    .padding(start = ScreenMargin, end = ScreenMargin, top = 24.dp),
+              ) {
+                ReadHeader(title = title, tags = tags, updatedAt = updatedAt)
                 blocks.forEachIndexed { index, block ->
+                    if (index == firstHeading) return@forEachIndexed
                     when (block) {
                         is MdBlock.Heading -> Text(
                             text = renderInline(block.text, colors),
@@ -79,14 +98,17 @@ fun MarkdownView(
                             modifier = Modifier.padding(top = if (block.level <= 2) 10.dp else 4.dp),
                         )
 
-                        is MdBlock.Paragraph -> Text(
-                            text = if (index == firstParagraph) {
-                                withInitial(renderInline(block.text, colors))
+                        is MdBlock.Paragraph -> {
+                            val paragraph = renderInline(block.text, colors)
+                            if (index == firstParagraph) {
+                                DropCapParagraph(paragraph, bodyStyle)
                             } else {
-                                renderInline(block.text, colors)
-                            },
-                            style = bodyStyle,
-                        )
+                                Text(
+                                    text = paragraph,
+                                    style = bodyStyle.copy(textAlign = TextAlign.Justify),
+                                )
+                            }
+                        }
 
                         is MdBlock.Bullet -> Row {
                             Text(
@@ -126,6 +148,7 @@ fun MarkdownView(
                     }
                 }
                 Spacer(Modifier.height(24.dp))
+              }
             }
         }
         ReadingProgress(
@@ -135,6 +158,66 @@ fun MarkdownView(
 }
 
 
+
+/**
+ * Okuma modunun başlık bloğu: etiketlerden türeyen üst satır, büyük başlık, etiket
+ * çipleri. Ölçüler tasarımdan: başlık 28sp/700, üst satır 10sp büyük harf ve seyrek,
+ * çipler px12/py4.
+ */
+@Composable
+private fun ReadHeader(title: String, tags: List<String>, updatedAt: String) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            if (tags.isNotEmpty()) {
+                Box(Modifier.size(6.dp).background(EchoColors.accent, EchoShapes.pill))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = tags.joinToString(" & ") { it.uppercase() },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = EchoColors.accent,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            val age = relativeTime(updatedAt)
+            if (age.isNotEmpty()) {
+                Text(
+                    text = "Son güncelleme: $age",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = EchoColors.textSecondary.copy(alpha = 0.7f),
+                    maxLines = 1,
+                )
+            }
+        }
+        Text(
+            text = title.ifBlank { "Adsız not" },
+            style = MaterialTheme.typography.displayMedium,
+            color = EchoColors.textPrimary,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        if (tags.isNotEmpty()) {
+            Row(modifier = Modifier.padding(top = 8.dp)) {
+                tags.forEach { tag ->
+                    Box(
+                        Modifier
+                            .padding(end = 6.dp)
+                            .clip(EchoShapes.pill)
+                            .background(EchoColors.surface)
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = "#$tag",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EchoColors.textSecondary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 /**
  * Alıntıyı kendi kartına alır. Tasarımda bu, metnin akışını kesen bir "düşünce
@@ -191,21 +274,75 @@ private fun ReadingProgress(progress: Float) {
 }
 
 /**
- * İlk harfi büyütür. Gerçek bir drop cap'te metin harfin etrafından dolanır; Compose'da
- * bunun taşınabilir karşılığı yok, bu yüzden harf satır içinde büyütülüyor — süslemenin
- * amacı olan "paragraf burada başlıyor" vurgusunu veriyor.
+ * Gerçek drop cap: ilk harf sola oturur, metnin ilk satırları onun sağından akar,
+ * kalanı tam genişlikte devam eder.
+ *
+ * Compose'da CSS'teki `float` yok; bu yüzden metin [rememberTextMeasurer] ile dar
+ * genişlikte ölçülüp harfin yanına sığan kısım ile kalanı ayrılıyor. Tasarımın
+ * değerleri: 54sp harf, 46sp satır kutusu, 12dp sağ boşluk, serif, terracotta.
  */
 @Composable
-private fun withInitial(text: AnnotatedString): AnnotatedString {
-    if (text.isEmpty() || !text.first().isLetter()) return text
-    val accent = EchoColors.accent
-    return buildAnnotatedString {
-        append(text)
-        addStyle(
-            SpanStyle(fontSize = 38.sp, fontWeight = FontWeight.Bold, color = accent),
-            start = 0,
-            end = 1,
+private fun DropCapParagraph(text: AnnotatedString, style: TextStyle) {
+    if (text.isEmpty() || !text.first().isLetter()) {
+        Text(text = text, style = style.copy(textAlign = TextAlign.Justify))
+        return
+    }
+
+    val capStyle = TextStyle(
+        fontSize = 54.sp,
+        lineHeight = 46.sp,
+        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.Serif,
+        color = EchoColors.accent,
+    )
+    val justified = style.copy(textAlign = TextAlign.Justify)
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val capLayout = measurer.measure(AnnotatedString(text.first().toString()), capStyle)
+        val capWidth = with(density) { capLayout.size.width.toDp() }
+        val lineHeight = with(density) { style.lineHeight.toDp() }
+        // Harfin kapladığı satır sayısı: kutusu kaç gövde satırına denk geliyorsa.
+        val wrapLines = ((46.dp + lineHeight - 1.dp) / lineHeight).toInt().coerceAtLeast(2)
+
+        val rest = text.subSequence(1, text.length)
+        val narrowWidth = (maxWidth - capWidth - 12.dp).coerceAtLeast(40.dp)
+        val narrowLayout = measurer.measure(
+            text = rest,
+            style = justified,
+            constraints = Constraints(maxWidth = with(density) { narrowWidth.roundToPx() }),
+            maxLines = wrapLines,
         )
+        var split = narrowLayout.getLineEnd(
+            lineIndex = (narrowLayout.lineCount - 1).coerceAtLeast(0),
+            visibleEnd = true,
+        ).coerceIn(0, rest.length)
+        // Satır sonundaki boşluk kalan bloğun başına düşüp ikinci bloğu içeri
+        // kaydırıyordu; sarmalanan son satırdan sonraki boşlukları atla.
+        while (split < rest.length && rest[split] == ' ') split++
+
+        Column {
+            Row {
+                Text(
+                    text = text.first().toString(),
+                    style = capStyle,
+                    modifier = Modifier.padding(end = 12.dp),
+                )
+                Text(
+                    text = rest.subSequence(0, split),
+                    style = justified,
+                    modifier = Modifier.width(narrowWidth),
+                )
+            }
+            if (split < rest.length) {
+                Text(
+                    text = rest.subSequence(split, rest.length),
+                    style = justified,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
     }
 }
 
@@ -251,7 +388,8 @@ private fun TaskRow(block: MdBlock.Task, colors: MarkdownColors, onToggle: () ->
 private val bodyStyle: TextStyle
     @Composable @ReadOnlyComposable get() = TextStyle(
         fontSize = 17.sp,
-        lineHeight = 28.sp,
+        // Tasarımın uzun metin ölçüsü: leading 1.8.
+        lineHeight = 30.sp,
         letterSpacing = (-0.01).sp,
         color = LocalEchoPalette.current.textPrimary,
     )

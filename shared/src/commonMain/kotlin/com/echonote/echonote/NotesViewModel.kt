@@ -204,7 +204,8 @@ class NotesViewModel(
         )
         repository.saveNote(note)
         // Editör anında açılır; not listeye DB akışıyla birkaç ms içinde düşer.
-        openInEditor(note)
+        // Yeni not yazmak için açılır — okunacak bir şey henüz yok.
+        openInEditor(note, readMode = false)
     }
 
     /** Silme onayı ister; asıl silme [confirmDelete] ile olur. */
@@ -416,6 +417,8 @@ class NotesViewModel(
                     editorTitle = fallback?.title.orEmpty(),
                     editorContent = fallback?.content.orEmpty(),
                     canUndo = canUndoFor(fallback?.id),
+                    // Kendiliğinden seçilen not da var olan bir nottur.
+                    readMode = !fallback?.content.isNullOrBlank(),
                 )
             }
         }
@@ -488,7 +491,11 @@ class NotesViewModel(
 
     // --- Yardımcılar ---
 
-    private fun openInEditor(note: Note) {
+    /**
+     * Notu açar. [readMode] verilmezse içeriğe bakılır: dolu bir not okumak için, boş
+     * bir not yazmak için açılır.
+     */
+    private fun openInEditor(note: Note, readMode: Boolean = note.content.isNotBlank()) {
         // Önceki notun bekleyen yazması, seçim değişmeden önce diske inmeli: sonra
         // inerse yeni notun içeriğiyle eski nota yazar.
         val current = _uiState.value.selectedNoteId
@@ -499,6 +506,7 @@ class NotesViewModel(
                 editorTitle = note.title,
                 editorContent = note.content,
                 canUndo = canUndoFor(note.id),
+                readMode = readMode,
             )
         }
     }

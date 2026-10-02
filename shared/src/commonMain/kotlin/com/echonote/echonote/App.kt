@@ -142,6 +142,7 @@ private fun BoxScope.NotesApp(
             trashed = state.trashedNotes,
             onRestore = viewModel::restoreFromTrash,
             onDeleteForever = viewModel::deleteForever,
+            onSyncNow = viewModel::requestOutboxFlush,
             onSignOut = onSignOut,
             bottomPadding = bottomPadding,
         )
@@ -221,10 +222,17 @@ private fun ExpandedLayout(
             current = tab,
             onSelect = onTabChange,
             onNewNote = viewModel::createNote,
-            sync = state.sync,
         )
-        VerticalHairline()
 
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            DesktopTopBar(
+                sync = state.sync,
+                query = state.searchQuery,
+                onQueryChange = viewModel::updateSearchQuery,
+                searchFocus = searchFocus,
+                onOpenSettings = { onTabChange(HomeTab.Settings) },
+            )
+            Row(Modifier.weight(1f).fillMaxWidth()) {
         when (tab) {
             HomeTab.Settings -> Box(Modifier.weight(1f).fillMaxHeight()) { settings(0.dp) }
 
@@ -253,11 +261,15 @@ private fun ExpandedLayout(
                     onTogglePin = viewModel::togglePinned,
                     onSortChange = viewModel::setSort,
                     searchFocus = searchFocus,
+                    showSearch = false,
                     modifier = Modifier.width(360.dp).fillMaxHeight(),
                 )
                 VerticalHairline()
                 EditorPane(state, viewModel, Modifier.weight(1f).fillMaxHeight())
+                }
             }
+            }
+            DesktopStatusBar(noteCount = state.notes.size)
         }
     }
 }
@@ -305,7 +317,7 @@ private fun CompactLayout(
     var editorOpen by rememberSaveable { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        HomeHeader(state.sync)
+        HomeHeader(state.sync, onOpenAccount = { onTabChange(HomeTab.Settings) })
         Box(Modifier.weight(1f)) {
             when (tab) {
                 HomeTab.Notes -> NoteListPane(
@@ -371,6 +383,10 @@ private fun CompactLayout(
                 onRemoveTag = viewModel::removeTag,
                 onExport = viewModel::exportSelected,
                 onToggleReadMode = viewModel::toggleReadMode,
+                onOpenAccount = {
+                    editorOpen = false
+                    onTabChange(HomeTab.Settings)
+                },
                 onDelete = { state.selectedNoteId?.let(viewModel::requestDelete) },
                 onBack = { editorOpen = false },
                 modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
