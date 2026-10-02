@@ -100,13 +100,13 @@ fun MarkdownView(
 
                         is MdBlock.Paragraph -> {
                             val paragraph = renderInline(block.text, colors)
-                            if (index == firstParagraph) {
+                            // Drop cap yalnızca akan düzyazıda: sert satır sonu taşıyan
+                            // bir paragrafta (şiir, adres) büyük harf ilk dizeyi
+                            // kopartıyor ve arada boşluk bırakıyor.
+                            if (index == firstParagraph && !paragraph.hasHardBreaks()) {
                                 DropCapParagraph(paragraph, bodyStyle)
                             } else {
-                                Text(
-                                    text = paragraph,
-                                    style = bodyStyle.copy(textAlign = TextAlign.Justify),
-                                )
+                                Text(text = paragraph, style = bodyStyle.justifiedFor(paragraph))
                             }
                         }
 
@@ -274,6 +274,19 @@ private fun ReadingProgress(progress: Float) {
 }
 
 /**
+ * İki yana yaslama yalnızca akan metinde uygulanır.
+ *
+ * Sert satır sonu taşıyan bir paragraf — şiir, adres, alt alta notlar — yaslanırsa her
+ * satır zorla tam genişliğe gerilir ve kelimelerin arası açılır. Böyle bir paragraf
+ * soldan hizalı kalır.
+ */
+private fun TextStyle.justifiedFor(text: AnnotatedString): TextStyle =
+    copy(textAlign = if (text.hasHardBreaks()) TextAlign.Start else TextAlign.Justify)
+
+/** Paragraf akan metin mi, yoksa alt alta yazılmış satırlar mı. */
+private fun AnnotatedString.hasHardBreaks(): Boolean = text.lineSequence().count() > 1
+
+/**
  * Gerçek drop cap: ilk harf sola oturur, metnin ilk satırları onun sağından akar,
  * kalanı tam genişlikte devam eder.
  *
@@ -284,7 +297,7 @@ private fun ReadingProgress(progress: Float) {
 @Composable
 private fun DropCapParagraph(text: AnnotatedString, style: TextStyle) {
     if (text.isEmpty() || !text.first().isLetter()) {
-        Text(text = text, style = style.copy(textAlign = TextAlign.Justify))
+        Text(text = text, style = style.justifiedFor(text))
         return
     }
 
@@ -295,7 +308,7 @@ private fun DropCapParagraph(text: AnnotatedString, style: TextStyle) {
         fontFamily = FontFamily.Serif,
         color = EchoColors.accent,
     )
-    val justified = style.copy(textAlign = TextAlign.Justify)
+    val justified = style.justifiedFor(text)
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
 

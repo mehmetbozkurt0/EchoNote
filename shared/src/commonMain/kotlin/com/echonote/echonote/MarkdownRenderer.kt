@@ -102,7 +102,13 @@ fun parseMarkdown(raw: String): List<MdBlock> {
             }
 
             else -> {
-                if (paragraph.isNotEmpty()) paragraph.append(' ')
+                // Tek Enter sert satır sonu sayılır, boşluğa dönüştürülmez.
+                //
+                // CommonMark burada satırları boşlukla birleştirir ve yeni paragraf için
+                // boş satır bekler. Bu bir not defteri: alt alta yazılan bir şiir, adres
+                // ya da liste, yazıldığı gibi görünmeli. Boş satır yine paragrafları
+                // ayırıyor, yalnızca satır içi birleştirme kalktı.
+                if (paragraph.isNotEmpty()) paragraph.appendLine()
                 paragraph.append(line.trim())
             }
         }

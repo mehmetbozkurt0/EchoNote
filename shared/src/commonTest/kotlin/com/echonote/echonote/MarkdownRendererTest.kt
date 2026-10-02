@@ -23,11 +23,30 @@ class MarkdownRendererTest {
     }
 
     @Test
-    fun ardisikSatirlarTekParagrafOlur() {
+    fun tekEnterSatirSonunuKorur() {
+        // Bir not defterinde alt alta yazılan satırlar (şiir, adres, liste) yazıldığı
+        // gibi görünmeli. CommonMark bunları boşlukla birleştirir; biz birleştirmiyoruz.
         val blocks = parseMarkdown("ilk satir\nikinci satir\n\nayri paragraf")
         assertEquals(2, blocks.size)
-        assertEquals(MdBlock.Paragraph("ilk satir ikinci satir"), blocks[0])
+        assertEquals(MdBlock.Paragraph("ilk satir\nikinci satir"), blocks[0])
         assertEquals(MdBlock.Paragraph("ayri paragraf"), blocks[1])
+    }
+
+    @Test
+    fun bosSatirYineParagrafAyirir() {
+        val blocks = parseMarkdown("bir\n\niki\n\nuc")
+        assertEquals(3, blocks.size)
+        assertEquals(MdBlock.Paragraph("bir"), blocks[0])
+        assertEquals(MdBlock.Paragraph("iki"), blocks[1])
+        assertEquals(MdBlock.Paragraph("uc"), blocks[2])
+    }
+
+    @Test
+    fun siirSatirlariAynenKorunur() {
+        val siir = "Bir gun\nbelki de hic\nama yine de"
+        val blocks = parseMarkdown(siir)
+        assertEquals(1, blocks.size)
+        assertEquals(MdBlock.Paragraph(siir), blocks[0])
     }
 
     @Test
