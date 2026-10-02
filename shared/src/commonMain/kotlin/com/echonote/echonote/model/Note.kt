@@ -27,9 +27,29 @@ data class Note(
      * yol (yerel `pending_delete` tombstone'u → uzaktan gerçek DELETE).
      */
     @SerialName("deleted_at") val deletedAt: String? = null,
+    /** Serbest etiketler. Supabase'de jsonb, yerelde JSON metni. */
+    val tags: List<String> = emptyList(),
+    /** Listede üstte tutulur. */
+    val pinned: Boolean = false,
 ) {
     val isTrashed: Boolean get() = deletedAt != null
 }
+
+/**
+ * Etiket normalleştirme: baştaki '#', boşluk ve büyük/küçük harf farkı kaldırılır.
+ *
+ * `lowercase()` yerelden bağımsızdır ve büyük 'İ'yi `i` + U+0307 (birleşen nokta) yapar;
+ * yani "İş" → "i̇ş" olur ve "iş" ile eşleşmez. O birleşen noktayı siliyoruz. Türkçe
+ * harfler korunuyor (ş, ğ, ü…): etiket görüntülenen bir değer, aramadaki gibi ASCII'ye
+ * indirgenmemeli.
+ */
+fun normalizeTag(raw: String): String = raw
+    .trim()
+    .removePrefix("#")
+    .trim()
+    .lowercase()
+    .replace("̇", "")
+    .replace(Regex("""\s+"""), "-")
 
 @OptIn(ExperimentalUuidApi::class)
 fun newNoteId(): String = Uuid.random().toString()

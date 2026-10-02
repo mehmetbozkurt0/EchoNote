@@ -39,12 +39,12 @@ fun DeleteConfirmDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = EchoColors.SpaceBlack.copy(alpha = 0.96f),
+        containerColor = EchoColors.spaceBlack.copy(alpha = 0.96f),
         shape = RoundedCornerShape(20.dp),
         title = {
             Text(
                 text = "Çöp kutusuna taşınsın mı?",
-                color = EchoColors.TextPrimary,
+                color = EchoColors.textPrimary,
                 fontWeight = FontWeight.Bold,
             )
         },
@@ -52,15 +52,15 @@ fun DeleteConfirmDialog(
             Text(
                 text = "\"${note.title.ifBlank { "Adsız not" }}\" çöp kutusuna gidecek. " +
                     "Oradan geri alabilirsin; 30 gün sonra kalıcı olarak silinir.",
-                color = EchoColors.TextSecondary,
+                color = EchoColors.textSecondary,
                 style = MaterialTheme.typography.bodyMedium,
             )
         },
         confirmButton = {
-            GlassButton(text = "Çöpe taşı", onClick = onConfirm, accent = EchoColors.NeonRose)
+            GlassButton(text = "Çöpe taşı", onClick = onConfirm, accent = EchoColors.neonRose)
         },
         dismissButton = {
-            GlassButton(text = "Vazgeç", onClick = onDismiss, accent = EchoColors.TextSecondary)
+            GlassButton(text = "Vazgeç", onClick = onDismiss, accent = EchoColors.textSecondary)
         },
     )
 }
@@ -82,7 +82,7 @@ fun TrashSheet(
             .fillMaxWidth()
             // Cam katman %5 opak: tek basina altindaki liste icinden gecer ve panel
             // okunmaz olur. Once koyu bir zemin, sonra cam.
-            .background(EchoColors.SpaceBlack.copy(alpha = 0.94f), RoundedCornerShape(24.dp))
+            .background(EchoColors.spaceBlack.copy(alpha = 0.94f), RoundedCornerShape(24.dp))
             .glass(RoundedCornerShape(24.dp))
             .padding(20.dp),
     ) {
@@ -92,25 +92,25 @@ fun TrashSheet(
                     text = "Çöp kutusu",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = EchoColors.TextPrimary,
+                    color = EchoColors.textPrimary,
                 )
                 Text(
                     text = if (trashed.isEmpty()) "Boş" else "${trashed.size} not · 30 gün sonra kalıcı silinir",
                     style = MaterialTheme.typography.labelSmall,
-                    color = EchoColors.TextSecondary,
+                    color = EchoColors.textSecondary,
                 )
             }
-            GlassButton(text = "Kapat", onClick = onClose, accent = EchoColors.TextSecondary)
+            GlassButton(text = "Kapat", onClick = onClose, accent = EchoColors.textSecondary)
         }
 
-        HorizontalDivider(color = EchoColors.GlassBorder)
+        HorizontalDivider(color = EchoColors.glassBorder)
 
         if (trashed.isEmpty()) {
             Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
                 Text(
                     text = "Sildiğin notlar burada 30 gün bekler",
                     style = MaterialTheme.typography.bodySmall,
-                    color = EchoColors.TextSecondary,
+                    color = EchoColors.textSecondary,
                 )
             }
         } else {
@@ -132,16 +132,16 @@ fun TrashSheet(
     confirmForever?.let { note ->
         AlertDialog(
             onDismissRequest = { confirmForever = null },
-            containerColor = EchoColors.SpaceBlack.copy(alpha = 0.96f),
+            containerColor = EchoColors.spaceBlack.copy(alpha = 0.96f),
             shape = RoundedCornerShape(20.dp),
             title = {
-                Text("Kalıcı olarak silinsin mi?", color = EchoColors.NeonRose, fontWeight = FontWeight.Bold)
+                Text("Kalıcı olarak silinsin mi?", color = EchoColors.neonRose, fontWeight = FontWeight.Bold)
             },
             text = {
                 Text(
                     text = "\"${note.title.ifBlank { "Adsız not" }}\" tüm cihazlardan kalıcı olarak " +
                         "silinecek. Bu işlemin geri dönüşü yok.",
-                    color = EchoColors.TextSecondary,
+                    color = EchoColors.textSecondary,
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },
@@ -152,11 +152,11 @@ fun TrashSheet(
                         onDeleteForever(note.id)
                         confirmForever = null
                     },
-                    accent = EchoColors.NeonRose,
+                    accent = EchoColors.neonRose,
                 )
             },
             dismissButton = {
-                GlassButton(text = "Vazgeç", onClick = { confirmForever = null }, accent = EchoColors.TextSecondary)
+                GlassButton(text = "Vazgeç", onClick = { confirmForever = null }, accent = EchoColors.textSecondary)
             },
         )
     }
@@ -167,13 +167,13 @@ private fun TrashRow(note: Note, onRestore: () -> Unit, onDeleteForever: () -> U
     Column(
         Modifier
             .fillMaxWidth()
-            .glass(RoundedCornerShape(16.dp), fill = EchoColors.GlassFill)
+            .glass(RoundedCornerShape(16.dp), fill = EchoColors.glassFill)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Text(
             text = note.title.ifBlank { "Adsız not" },
             style = MaterialTheme.typography.titleSmall,
-            color = EchoColors.TextPrimary,
+            color = EchoColors.textPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -181,8 +181,8 @@ private fun TrashRow(note: Note, onRestore: () -> Unit, onDeleteForever: () -> U
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(top = 8.dp),
         ) {
-            GlassButton(text = "Geri yükle", onClick = onRestore, accent = EchoColors.NeonMint)
-            GlassButton(text = "Kalıcı sil", onClick = onDeleteForever, accent = EchoColors.NeonRose)
+            GlassButton(text = "Geri yükle", onClick = onRestore, accent = EchoColors.neonMint)
+            GlassButton(text = "Kalıcı sil", onClick = onDeleteForever, accent = EchoColors.neonRose)
         }
     }
 }
@@ -195,14 +195,14 @@ fun TrashEntryRow(count: Int, onOpen: () -> Unit, modifier: Modifier = Modifier)
             Text(
                 text = "Çöp kutusu",
                 style = MaterialTheme.typography.bodyMedium,
-                color = EchoColors.TextPrimary,
+                color = EchoColors.textPrimary,
             )
             Text(
                 text = if (count == 0) "Boş" else "$count not",
                 style = MaterialTheme.typography.labelSmall,
-                color = EchoColors.TextSecondary,
+                color = EchoColors.textSecondary,
             )
         }
-        GlassButton(text = "Aç", onClick = onOpen, accent = EchoColors.NeonLavender)
+        GlassButton(text = "Aç", onClick = onOpen, accent = EchoColors.neonLavender)
     }
 }

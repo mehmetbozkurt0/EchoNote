@@ -40,23 +40,23 @@ fun SyncStatusChip(sync: SyncState, modifier: Modifier = Modifier) {
     val (label, color, pulsing) = when (sync.connection) {
         // Yerel depo her koşulda kalıcı; burada anlatılan şey senkronun durumu.
         ConnectionState.OfflineMode ->
-            Triple("Çevrimdışı mod · yerelde saklanıyor", EchoColors.TextSecondary, false)
+            Triple("Çevrimdışı mod · yerelde saklanıyor", EchoColors.textSecondary, false)
 
         ConnectionState.Reconnecting ->
             if (pending > 0) {
-                Triple("Çevrimdışı · $pending değişiklik bekliyor", EchoColors.NeonRose, true)
+                Triple("Çevrimdışı · $pending değişiklik bekliyor", EchoColors.neonRose, true)
             } else {
-                Triple("Bağlantı yok — yeniden deneniyor", EchoColors.NeonRose, true)
+                Triple("Bağlantı yok — yeniden deneniyor", EchoColors.neonRose, true)
             }
 
         ConnectionState.Connecting ->
-            Triple("Bağlanıyor…", EchoColors.TextSecondary, true)
+            Triple("Bağlanıyor…", EchoColors.textSecondary, true)
 
         ConnectionState.Live ->
             if (pending > 0) {
-                Triple("Kaydedildi · senkron bekliyor", EchoColors.NeonLavender, true)
+                Triple("Kaydedildi · senkron bekliyor", EchoColors.neonLavender, true)
             } else {
-                Triple("Senkron", EchoColors.NeonMint, false)
+                Triple("Senkron", EchoColors.neonMint, false)
             }
     }
 
@@ -106,16 +106,16 @@ fun ErrorBanner(message: String, onDismiss: () -> Unit, modifier: Modifier = Mod
             .fillMaxWidth()
             // Kökte serbest duruyor: mesh zeminin üstünde okunabilir kalması için
             // önce koyu bir perde, sonra cam katman.
-            .background(EchoColors.SpaceBlack.copy(alpha = 0.78f), RoundedCornerShape(16.dp))
-            .glass(shape = RoundedCornerShape(16.dp), fill = EchoColors.NeonRose.copy(alpha = 0.12f))
+            .background(EchoColors.spaceBlack.copy(alpha = 0.78f), RoundedCornerShape(16.dp))
+            .glass(shape = RoundedCornerShape(16.dp), fill = EchoColors.neonRose.copy(alpha = 0.12f))
             .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
     ) {
         Text(
             text = message,
             style = MaterialTheme.typography.bodySmall,
-            color = EchoColors.NeonRose,
+            color = EchoColors.neonRose,
             modifier = Modifier.weight(1f),
         )
-        GlassButton(text = "Kapat", onClick = onDismiss, accent = EchoColors.NeonRose)
+        GlassButton(text = "Kapat", onClick = onDismiss, accent = EchoColors.neonRose)
     }
 }

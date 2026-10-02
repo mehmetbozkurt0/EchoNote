@@ -18,7 +18,10 @@ CREATE TABLE note (
     -- Dolu ise not COP KUTUSUNDA. pending_delete'ten farki: bu normal bir alan gibi
     -- SENKRONLANIR, yani cop kutusu iki cihazda da ayni gorunur. pending_delete ise
     -- kalici silmenin outbox tombstone'u olarak kaliyor.
-    deleted_at     TEXT
+    deleted_at     TEXT,
+    -- Etiketler JSON dizisi metni olarak; ayri tablo senkron mantigini katlardi.
+    tags           TEXT NOT NULL DEFAULT '[]',
+    pinned         INTEGER AS kotlin.Boolean NOT NULL DEFAULT 0
 );
 
 CREATE INDEX note_updated_at ON note(updated_at DESC);
@@ -26,8 +29,10 @@ CREATE INDEX note_updated_at ON note(updated_at DESC);
 -- --- Okuma ---
 
 -- UI'ın gördüğü liste: tombstone'lar ve çöp kutusundakiler görünmez.
+-- Sabitlenenler once, sonra guncellenme zamanina gore.
 selectVisible:
-SELECT * FROM note WHERE pending_delete = 0 AND deleted_at IS NULL ORDER BY updated_at DESC;
+SELECT * FROM note WHERE pending_delete = 0 AND deleted_at IS NULL
+ORDER BY pinned DESC, updated_at DESC;
 
 -- Çöp kutusu: silinme zamanına göre yeniden eskiye.
 selectTrashed:
@@ -58,13 +63,21 @@ SELECT count(*) FROM note WHERE dirty = 1 OR pending_delete = 1;
 -- --- Yazma ---
 
 insertNote:
-INSERT INTO note(id, title, content, updated_at, device_id, dirty, pending_delete, deleted_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO note(id, title, content, updated_at, device_id, dirty, pending_delete, deleted_at, tags, pinned)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 updateNoteRow:
 UPDATE note
-SET title = ?, content = ?, updated_at = ?, device_id = ?, dirty = ?, deleted_at = ?
+SET title = ?, content = ?, updated_at = ?, device_id = ?, dirty = ?, deleted_at = ?, tags = ?, pinned = ?
 WHERE id = ?;
+
+-- Kullanilan tum etiketler (filtre cubugu icin); JSON metni olarak doner, ayristirma
+-- Kotlin tarafinda.
+selectAllTagsRaw:
+SELECT tags FROM note WHERE pending_delete = 0 AND deleted_at IS NULL;
+
+setPinned:
+UPDATE note SET pinned = ?, updated_at = ?, dirty = 1 WHERE id = ?;
 
 -- Cop kutusuna tasima / geri alma. Ikisi de satiri KIRLI isaretler: deleted_at normal
 -- bir alan gibi senkronlanir, boylece cop kutusu iki cihazda da ayni gorunur.

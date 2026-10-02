@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,6 +31,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/** Yazı boyutu adımı; uçlar AppSettings'te sınırlı. */
+private const val FONT_STEP = 0.1f
+
 /**
  * Hesap ve anahtar ayarları. Gemini anahtarı artık burada yaşıyor — eskiden
  * `Secrets.kt`'de derlenip APK'nın içinde gidiyordu.
@@ -40,6 +45,10 @@ fun SettingsSheet(
     onGeminiApiKeyChange: (String) -> Unit,
     trashCount: Int,
     onOpenTrash: () -> Unit,
+    themeMode: ThemeMode,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    fontScale: Float,
+    onFontScaleChange: (Float) -> Unit,
     onSignOut: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -52,7 +61,7 @@ fun SettingsSheet(
             .fillMaxWidth()
             // Cam katman %5 opak: tek basina altindaki liste icinden gecer ve panel
             // okunmaz olur. Once koyu bir zemin, sonra cam.
-            .background(EchoColors.SpaceBlack.copy(alpha = 0.94f), RoundedCornerShape(24.dp))
+            .background(EchoColors.spaceBlack.copy(alpha = 0.94f), RoundedCornerShape(24.dp))
             .glass(RoundedCornerShape(24.dp))
             .imePadding()
             .padding(20.dp),
@@ -62,55 +71,98 @@ fun SettingsSheet(
                 text = "Ayarlar",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = EchoColors.TextPrimary,
+                color = EchoColors.textPrimary,
                 modifier = Modifier.weight(1f),
             )
-            GlassButton(text = "Kapat", onClick = onClose, accent = EchoColors.TextSecondary)
+            GlassButton(text = "Kapat", onClick = onClose, accent = EchoColors.textSecondary)
         }
 
-        HorizontalDivider(color = EchoColors.GlassBorder)
+        HorizontalDivider(color = EchoColors.glassBorder)
 
         // --- Hesap ---
         Text(
             text = "Hesap",
             style = MaterialTheme.typography.labelMedium,
-            color = EchoColors.NeonCyan,
+            color = EchoColors.neonCyan,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = accountEmail ?: "Çevrimdışı mod — hesap yok",
                 style = MaterialTheme.typography.bodyMedium,
-                color = EchoColors.TextSecondary,
+                color = EchoColors.textSecondary,
                 modifier = Modifier.weight(1f),
             )
             if (accountEmail != null) {
-                GlassButton(text = "Çıkış yap", onClick = onSignOut, accent = EchoColors.NeonRose)
+                GlassButton(text = "Çıkış yap", onClick = onSignOut, accent = EchoColors.neonRose)
             }
         }
         if (accountEmail != null) {
             Text(
                 text = "Çıkış yapınca bu cihazdaki yerel kopya silinir; notların sunucuda kalır.",
                 style = MaterialTheme.typography.labelSmall,
-                color = EchoColors.TextSecondary.copy(alpha = 0.7f),
+                color = EchoColors.textSecondary.copy(alpha = 0.7f),
             )
         }
 
-        HorizontalDivider(color = EchoColors.GlassBorder)
+        HorizontalDivider(color = EchoColors.glassBorder)
+
+        // --- Görünüm ---
+        Text(
+            text = "Görünüm",
+            style = MaterialTheme.typography.labelMedium,
+            color = EchoColors.neonCyan,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ThemeMode.entries.forEach { mode ->
+                GlassButton(
+                    text = when (mode) {
+                        ThemeMode.System -> "Sistem"
+                        ThemeMode.Dark -> "Koyu"
+                        ThemeMode.Light -> "Açık"
+                    },
+                    onClick = { onThemeModeChange(mode) },
+                    accent = if (mode == themeMode) EchoColors.neonCyan else EchoColors.textSecondary,
+                )
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "Yazı boyutu  ${(fontScale * 100).toInt()}%",
+                style = MaterialTheme.typography.bodyMedium,
+                color = EchoColors.textSecondary,
+                modifier = Modifier.weight(1f),
+            )
+            GlassButton(
+                text = "A−",
+                onClick = { onFontScaleChange(fontScale - FONT_STEP) },
+                accent = EchoColors.textPrimary,
+                enabled = fontScale > MIN_FONT_SCALE,
+            )
+            Spacer(Modifier.width(8.dp))
+            GlassButton(
+                text = "A+",
+                onClick = { onFontScaleChange(fontScale + FONT_STEP) },
+                accent = EchoColors.textPrimary,
+                enabled = fontScale < MAX_FONT_SCALE,
+            )
+        }
+
+        HorizontalDivider(color = EchoColors.glassBorder)
 
         TrashEntryRow(count = trashCount, onOpen = onOpenTrash)
 
-        HorizontalDivider(color = EchoColors.GlassBorder)
+        HorizontalDivider(color = EchoColors.glassBorder)
 
         // --- Gemini ---
         Text(
             text = "Gemini API anahtarı",
             style = MaterialTheme.typography.labelMedium,
-            color = EchoColors.NeonLavender,
+            color = EchoColors.neonLavender,
         )
         Text(
             text = "Boş bırakılırsa AI eylemleri sahte modda çalışır. Anahtar yalnızca bu cihazda saklanır.",
             style = MaterialTheme.typography.labelSmall,
-            color = EchoColors.TextSecondary.copy(alpha = 0.7f),
+            color = EchoColors.textSecondary.copy(alpha = 0.7f),
         )
         Box(
             Modifier
@@ -122,7 +174,7 @@ fun SettingsSheet(
                 Text(
                     text = "aistudio.google.com/apikey",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = EchoColors.TextSecondary.copy(alpha = 0.7f),
+                    color = EchoColors.textSecondary.copy(alpha = 0.7f),
                 )
             }
             BasicTextField(
@@ -131,8 +183,8 @@ fun SettingsSheet(
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                textStyle = TextStyle(color = EchoColors.TextPrimary, fontSize = 15.sp),
-                cursorBrush = SolidColor(EchoColors.NeonLavender),
+                textStyle = TextStyle(color = EchoColors.textPrimary, fontSize = 15.sp),
+                cursorBrush = SolidColor(EchoColors.neonLavender),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -140,7 +192,7 @@ fun SettingsSheet(
             GlassButton(
                 text = "Kaydet",
                 onClick = { onGeminiApiKeyChange(keyDraft) },
-                accent = EchoColors.NeonMint,
+                accent = EchoColors.neonMint,
                 enabled = keyDraft != geminiApiKey,
             )
             if (geminiApiKey.isNotEmpty()) {
@@ -150,7 +202,7 @@ fun SettingsSheet(
                         keyDraft = ""
                         onGeminiApiKeyChange("")
                     },
-                    accent = EchoColors.NeonRose,
+                    accent = EchoColors.neonRose,
                 )
             }
         }

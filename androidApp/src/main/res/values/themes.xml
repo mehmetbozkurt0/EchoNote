@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Açılış teması. Eskiden Theme.Material.Light.NoActionBar kullanılıyordu: uygulama
+        koyu temalı olduğu için her açılışta beyaz bir flaş görünüyordu. Zemin rengi
+        EchoColors.spaceBlack ile aynı, böylece Compose çizene kadar geçen anda renk
+        atlaması olmuyor.
+    -->
+    <style name="Theme.EchoNote" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/echo_space_black</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

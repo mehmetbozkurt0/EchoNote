@@ -7,8 +7,11 @@ import com.echonote.echonote.ai.AiService
 import com.echonote.echonote.data.NotesRepository
 import com.echonote.echonote.data.SyncState
 import com.echonote.echonote.model.Note
+import com.echonote.echonote.model.deriveTitle
+import com.echonote.echonote.model.exportFileName
 import com.echonote.echonote.model.localDeviceId
 import com.echonote.echonote.model.newNoteId
+import com.echonote.echonote.model.normalizeTag
 import com.echonote.echonote.model.nowIsoUtc
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -25,11 +28,15 @@ data class NotesUiState(
     /** Yerel depodan türetilir; sıralama ve birleştirme veri katmanında yapılmıştır. */
     val notes: List<Note> = emptyList(),
     val searchQuery: String = "",
+    /** Seçili etiket filtresi; null ise filtre yok. */
+    val activeTag: String? = null,
     /** Çöp kutusundaki notlar; ana listede görünmezler. */
     val trashedNotes: List<Note> = emptyList(),
     /** Silme onayı bekleyen notun kimliği; null ise diyalog kapalı. */
     val pendingDeleteNoteId: String? = null,
     val trashOpen: Boolean = false,
+    /** Okuma modu; kısayol ve ekran döndürme için ViewModel'de tutuluyor. */
+    val readMode: Boolean = false,
     val selectedNoteId: String? = null,
     /**
      * Editörün metni. Liste DB'den türetilirken editör VM'e aittir: her tuş vuruşunu
@@ -43,18 +50,28 @@ data class NotesUiState(
     val canUndo: Boolean = false,
     val sync: SyncState = SyncState(),
     val errorMessage: String? = null,
+    /** Depodan ilk yayın geldi mi. False iken liste "boş" değil "henüz bilinmiyor". */
+    val loaded: Boolean = false,
 ) {
     /**
      * Listede gösterilecek notlar. `val` olarak hesaplanır (get() değil): sorgu ya da
      * liste değişmedikçe yeniden hesaplanmaz, her recomposition'da filtre koşmaz.
      */
-    val visibleNotes: List<Note> = if (searchQuery.isBlank()) {
-        notes
-    } else {
-        val key = searchQuery.searchKey()
-        notes.filter { it.title.searchKey().contains(key) || it.content.searchKey().contains(key) }
-    }
+    val visibleNotes: List<Note> = notes
+        .let { list -> if (activeTag == null) list else list.filter { activeTag in it.tags } }
+        .let { list ->
+            if (searchQuery.isBlank()) {
+                list
+            } else {
+                val key = searchQuery.searchKey()
+                list.filter { it.title.searchKey().contains(key) || it.content.searchKey().contains(key) }
+            }
+        }
 
+    /** Filtre çubuğu için kullanılan tüm etiketler. */
+    val allTags: List<String> = notes.flatMap { it.tags }.distinct().sorted()
+
+    val selectedNote: Note? get() = notes.firstOrNull { it.id == selectedNoteId }
     val hasSelection: Boolean get() = selectedNoteId != null
     val isStreamingSelected: Boolean get() = streamingNoteId != null && streamingNoteId == selectedNoteId
     val isSearching: Boolean get() = searchQuery.isNotBlank()
@@ -161,6 +178,8 @@ class NotesViewModel(
         moveToTrash(id)
     }
 
+    fun toggleReadMode() = _uiState.update { it.copy(readMode = !it.readMode) }
+
     fun openTrash() = _uiState.update { it.copy(trashOpen = true) }
 
     fun closeTrash() = _uiState.update { it.copy(trashOpen = false) }
@@ -233,8 +252,40 @@ class NotesViewModel(
         _uiState.update { it.copy(searchQuery = query) }
     }
 
+    fun setTagFilter(tag: String?) {
+        _uiState.update { it.copy(activeTag = if (it.activeTag == tag) null else tag) }
+    }
+
+    fun togglePinned(id: String) {
+        val note = _uiState.value.notes.firstOrNull { it.id == id } ?: return
+        repository.setPinned(id, !note.pinned)
+    }
+
+    /** Seçili nota etiket ekler; normalleştirilir ve tekrarlanmaz. */
+    fun addTag(raw: String) {
+        val tag = normalizeTag(raw)
+        if (tag.isBlank()) return
+        val note = _uiState.value.selectedNote ?: return
+        if (tag in note.tags) return
+        repository.saveNote(note.copy(tags = note.tags + tag, updatedAt = nowIsoUtc()))
+    }
+
+    fun removeTag(tag: String) {
+        val note = _uiState.value.selectedNote ?: return
+        if (tag !in note.tags) return
+        repository.saveNote(note.copy(tags = note.tags - tag, updatedAt = nowIsoUtc()))
+    }
+
     fun clearSearch() {
         _uiState.update { it.copy(searchQuery = "") }
+    }
+
+    /** Seçili notu Markdown olarak dışa aktarır. */
+    fun exportSelected() {
+        val state = _uiState.value
+        if (!state.hasSelection) return
+        val title = state.editorTitle.ifBlank { deriveTitle(state.editorContent) }
+        exportNoteAsMarkdown(exportFileName(title), state.editorContent)
     }
 
     fun dismissError() {
@@ -303,6 +354,7 @@ class NotesViewModel(
      * kaybolduysa (başka cihazda silinmiş ya da yerel silme uygulanmış) komşuya geçilir.
      */
     private fun onNotesFromStore(notes: List<Note>) {
+        _uiState.update { it.copy(loaded = true) }
         _uiState.update { state ->
             val selectionAlive = state.selectedNoteId != null &&
                 notes.any { it.id == state.selectedNoteId }
@@ -325,13 +377,19 @@ class NotesViewModel(
     private fun persistEditor() {
         val state = _uiState.value
         val noteId = state.selectedNoteId ?: return
+        val existing = state.selectedNote
         repository.saveNote(
             Note(
                 id = noteId,
-                title = state.editorTitle,
+                // Başlık elle yazılmadıysa içerikten türetilir; listede "Yeni Not"
+                // kalabalığının sebebi buydu.
+                title = state.editorTitle.ifBlank { deriveTitle(state.editorContent) },
                 content = state.editorContent,
                 updatedAt = nowIsoUtc(),
                 deviceId = localDeviceId,
+                // Etiket ve sabitleme editörde düzenlenmiyor; yazarken kaybolmasınlar.
+                tags = existing?.tags.orEmpty(),
+                pinned = existing?.pinned ?: false,
             )
         )
     }

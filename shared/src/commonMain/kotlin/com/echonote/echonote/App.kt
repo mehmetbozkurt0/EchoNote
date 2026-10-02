@@ -8,6 +8,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.tooling.preview.Preview
@@ -48,7 +50,18 @@ private val ExpandedWidthThreshold = 800.dp
 @Composable
 @Preview
 fun App() {
-    EchoTheme {
+    val themeMode by AppServices.settings.themeMode.collectAsStateWithLifecycle()
+    val fontScale by AppServices.settings.fontScale.collectAsStateWithLifecycle()
+    val systemDark = isSystemInDarkTheme()
+    val palette = when (themeMode) {
+        ThemeMode.System -> if (systemDark) DarkPalette else LightPalette
+        ThemeMode.Dark -> DarkPalette
+        ThemeMode.Light -> LightPalette
+    }
+
+    EchoTheme(palette = palette, fontScale = fontScale) {
+        ApplySystemBarAppearance(isLight = palette.isLight)
+
         val session: SessionViewModel = viewModel { SessionViewModel() }
         val sessionState by session.uiState.collectAsStateWithLifecycle()
         val activity = rememberActivityState()
@@ -82,7 +95,7 @@ fun App() {
 @Composable
 private fun BoxScope.LoadingGate() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = EchoColors.NeonCyan, strokeWidth = 2.dp)
+        CircularProgressIndicator(color = EchoColors.neonCyan, strokeWidth = 2.dp)
     }
 }
 
@@ -95,11 +108,15 @@ private fun BoxScope.NotesApp(
     val viewModel: NotesViewModel = viewModel { NotesViewModel() }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val geminiKey by AppServices.settings.geminiApiKey.collectAsStateWithLifecycle()
+    val themeMode by AppServices.settings.themeMode.collectAsStateWithLifecycle()
+    val fontScale by AppServices.settings.fontScale.collectAsStateWithLifecycle()
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
 
     // Yazmak da etkileşimdir: fiziksel klavyeyle yazarken işaretçi olayı gelmez,
     // bu olmadan arka plan kullanıcı yazarken duraklardı.
     LaunchedEffect(state.editorContent, state.selectedNoteId) { activity.touch() }
+
+    val searchFocus = remember { FocusRequester() }
 
     // Yazmalar artık anında yerel depoya indiği için burada kurtarılacak bir şey yok;
     // arka plana düşerken bekleyen senkronu uzağa göndermeye çalışmak yine değerli.
@@ -107,11 +124,24 @@ private fun BoxScope.NotesApp(
 
     // Insets kök yerine sayfa içeriklerine uygulanır: zeminler status bar'ın
     // arkasına taşar (edge-to-edge), yazılar ise güvenli alanda kalır.
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .appShortcuts(
+                onNewNote = viewModel::createNote,
+                onFocusSearch = { runCatching { searchFocus.requestFocus() } },
+                onToggleRead = viewModel::toggleReadMode,
+                onEscape = {
+                    settingsOpen = false
+                    viewModel.closeTrash()
+                    viewModel.clearSearch()
+                },
+            )
+    ) {
         if (maxWidth >= ExpandedWidthThreshold) {
-            ExpandedLayout(state, viewModel) { settingsOpen = true }
+            ExpandedLayout(state, viewModel, searchFocus) { settingsOpen = true }
         } else {
-            CompactLayout(state, viewModel) { settingsOpen = true }
+            CompactLayout(state, viewModel, searchFocus) { settingsOpen = true }
         }
     }
 
@@ -136,7 +166,7 @@ private fun BoxScope.NotesApp(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(EchoColors.SpaceBlack.copy(alpha = 0.55f))
+                .background(EchoColors.spaceBlack.copy(alpha = 0.55f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -186,6 +216,10 @@ private fun BoxScope.NotesApp(
             geminiApiKey = geminiKey,
             onGeminiApiKeyChange = AppServices.settings::setGeminiApiKey,
             trashCount = state.trashedNotes.size,
+            themeMode = themeMode,
+            onThemeModeChange = AppServices.settings::setThemeMode,
+            fontScale = fontScale,
+            onFontScaleChange = AppServices.settings::setFontScale,
             onOpenTrash = {
                 settingsOpen = false
                 viewModel.openTrash()
@@ -204,6 +238,7 @@ private fun BoxScope.NotesApp(
 private fun ExpandedLayout(
     state: NotesUiState,
     viewModel: NotesViewModel,
+    searchFocus: FocusRequester,
     onOpenSettings: () -> Unit,
 ) {
     Row(
@@ -220,6 +255,9 @@ private fun ExpandedLayout(
             onDelete = viewModel::requestDelete,
             onOpenSettings = onOpenSettings,
             onSearchChange = viewModel::updateSearchQuery,
+        onTagFilter = viewModel::setTagFilter,
+            onTogglePin = viewModel::togglePinned,
+            searchFocus = searchFocus,
             modifier = Modifier.width(340.dp).fillMaxHeight(),
         )
         NoteEditorPane(
@@ -231,6 +269,10 @@ private fun ExpandedLayout(
             onUndo = viewModel::undoSelected,
             onStop = viewModel::stopStreaming,
             onToggleTask = viewModel::toggleTask,
+            onAddTag = viewModel::addTag,
+            onRemoveTag = viewModel::removeTag,
+            onExport = viewModel::exportSelected,
+            onToggleReadMode = viewModel::toggleReadMode,
             modifier = Modifier.weight(1f).fillMaxHeight(),
         )
     }
@@ -243,6 +285,7 @@ private fun ExpandedLayout(
 private fun CompactLayout(
     state: NotesUiState,
     viewModel: NotesViewModel,
+    searchFocus: FocusRequester,
     onOpenSettings: () -> Unit,
 ) {
     // rememberSaveable: ekran döndürüldüğünde editörden listeye fırlamamak için.
@@ -261,6 +304,9 @@ private fun CompactLayout(
         onDelete = viewModel::requestDelete,
         onOpenSettings = onOpenSettings,
         onSearchChange = viewModel::updateSearchQuery,
+        onTagFilter = viewModel::setTagFilter,
+            onTogglePin = viewModel::togglePinned,
+            searchFocus = searchFocus,
         framed = false,
         modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
     )
@@ -272,7 +318,7 @@ private fun CompactLayout(
     ) {
         // Tam opak perde: alttaki liste hiçbir koşulda görünmez; zemin
         // status bar'ın arkasına kadar uzanır, içerik insets ile korunur.
-        Box(Modifier.fillMaxSize().background(EchoColors.SpaceBlack)) {
+        Box(Modifier.fillMaxSize().background(EchoColors.spaceBlack)) {
             NoteEditorPane(
                 state = state,
                 onContentChange = viewModel::updateContent,
@@ -282,6 +328,11 @@ private fun CompactLayout(
                 onUndo = viewModel::undoSelected,
                 onStop = viewModel::stopStreaming,
                 onToggleTask = viewModel::toggleTask,
+                onAddTag = viewModel::addTag,
+                onRemoveTag = viewModel::removeTag,
+                onExport = viewModel::exportSelected,
+                onToggleReadMode = viewModel::toggleReadMode,
+                onDelete = { state.selectedNoteId?.let(viewModel::requestDelete) },
                 onBack = { editorOpen = false },
                 framed = false,
                 modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),

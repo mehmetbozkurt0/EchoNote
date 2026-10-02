@@ -31,11 +31,11 @@ compose.desktop {
             // ancak createDistributable/packageMsi çıktısında ortaya çıkar.
             modules("java.sql", "java.naming")
 
-            // icon.ico geçerli ICO formatında olmadığı için paketleyici reddediyor;
-            // gerçek bir .ico üretilince bu blok geri açılabilir.
-            // windows {
-            //     iconFile.set(project.file("src/main/resources/icon.ico"))
-            // }
+            // icon.ico eskiden 0 bayttı ve paketleyici reddediyordu. Artık icon.png'den
+            // üretilmiş, 16/32/48/64/128/256 boyutlu geçerli bir ICO.
+            windows {
+                iconFile.set(project.file("src/main/resources/icon.ico"))
+            }
         }
     }
 }

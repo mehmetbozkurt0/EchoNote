@@ -1,0 +1,9 @@
+-- v2 -> v3: etiketler ve sabitleme.
+--
+-- tags: JSON dizisi metni ("[]" varsayilan). Ayri bir etiket tablosu yerine tek kolon
+-- secildi; join tablosu senkron mantigini katlardi ve bu olcekte karsiligi yok.
+-- pinned: liste siralamasinda ustte tutulacak notlar.
+--
+-- Mevcut satirlar varsayilan deger alir; hicbir veriye dokunulmaz.
+ALTER TABLE note ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE note ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;

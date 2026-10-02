@@ -18,9 +18,19 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +49,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.echonote.echonote.model.relativeTime
+import com.echonote.echonote.model.textStats
 import androidx.compose.ui.unit.sp
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -52,6 +64,11 @@ fun NoteEditorPane(
     onUndo: () -> Unit,
     onStop: () -> Unit,
     onToggleTask: (Int) -> Unit,
+    onAddTag: (String) -> Unit,
+    onRemoveTag: (String) -> Unit,
+    onExport: () -> Unit,
+    onToggleReadMode: () -> Unit,
+    onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     /** false: mobil tam ekran sayfa — dış cam çerçeve yok, cam efekti butonlarda kalır. */
@@ -63,25 +80,28 @@ fun NoteEditorPane(
     // DB akışıyla birkaç ms sonra listeye düşer, editör o anda açık olmalı.
     if (!state.hasSelection) {
         Box(modifier.fillMaxSize().then(container), contentAlignment = Alignment.Center) {
-            Text("Bir not seç", color = EchoColors.TextSecondary)
+            Text("Bir not seç", color = EchoColors.textSecondary)
         }
         return
     }
 
     val isStreamingHere = state.isStreamingSelected
     val isStreamingAnywhere = state.streamingNoteId != null
-    // Mod korunur: okuma modundayken ekran döndürmek seni editöre atmasın.
-    var readMode by rememberSaveable { mutableStateOf(false) }
+    val readMode = state.readMode
 
     Column(modifier.fillMaxSize().then(container).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) {
-                GlassButton(
-                    text = "←",
+                IconButton(
                     onClick = onBack,
-                    accent = EchoColors.TextPrimary,
-                    modifier = Modifier.padding(end = 10.dp),
-                )
+                    modifier = Modifier.padding(end = 6.dp).size(48.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Listeye dön",
+                        tint = EchoColors.textPrimary,
+                    )
+                }
             }
             BasicTextField(
                 value = state.editorTitle,
@@ -89,9 +109,9 @@ fun NoteEditorPane(
                 singleLine = true,
                 textStyle = MaterialTheme.typography.headlineSmall.copy(
                     fontWeight = FontWeight.Bold,
-                    color = EchoColors.TextPrimary,
+                    color = EchoColors.textPrimary,
                 ),
-                cursorBrush = SolidColor(EchoColors.NeonCyan),
+                cursorBrush = SolidColor(EchoColors.neonCyan),
                 modifier = Modifier.weight(1f),
             )
         }
@@ -103,29 +123,47 @@ fun NoteEditorPane(
             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
         ) {
             GlassButton(
-                text = "✨ AI Genişlet",
+                text = "AI Genişlet",
+                icon = Icons.Default.Star,
                 onClick = onExpand,
-                accent = EchoColors.NeonCyan,
+                accent = EchoColors.neonCyan,
                 enabled = !isStreamingAnywhere,
             )
             GlassButton(
                 text = "AI Özetle",
+                icon = Icons.Default.List,
                 onClick = onCondense,
-                accent = EchoColors.NeonLavender,
+                accent = EchoColors.neonLavender,
                 enabled = !isStreamingAnywhere,
             )
             GlassButton(
-                text = if (readMode) "✎ Düzenle" else "👁 Oku",
-                onClick = { readMode = !readMode },
-                accent = EchoColors.TextPrimary,
+                text = if (readMode) "Düzenle" else "Oku",
+                onClick = onToggleReadMode,
+                accent = EchoColors.textPrimary,
             )
+            GlassButton(
+                text = "Dışa aktar",
+                onClick = onExport,
+                accent = EchoColors.textSecondary,
+                icon = Icons.Default.Share,
+            )
+            // Mobilde editör tam ekran; silmek için listeye dönmek gerekiyordu.
+            if (onDelete != null) {
+                GlassButton(
+                    text = "Sil",
+                    onClick = onDelete,
+                    accent = EchoColors.neonRose,
+                    icon = Icons.Default.Delete,
+                )
+            }
             if (isStreamingHere) {
-                GlassButton(text = "Durdur", onClick = onStop, accent = EchoColors.NeonRose)
+                GlassButton(text = "Durdur", onClick = onStop, accent = EchoColors.neonRose)
             } else {
                 GlassButton(
-                    text = "↩ Geri Al",
+                    text = "Geri Al",
+                    icon = Icons.Default.Refresh,
                     onClick = onUndo,
-                    accent = EchoColors.NeonMint,
+                    accent = EchoColors.neonMint,
                     enabled = state.canUndo,
                 )
             }
@@ -139,8 +177,36 @@ fun NoteEditorPane(
             StreamingBanner()
         }
 
+        TagRow(
+            tags = state.selectedNote?.tags.orEmpty(),
+            onAdd = onAddTag,
+            onRemove = onRemoveTag,
+            modifier = Modifier.padding(bottom = 10.dp),
+        )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+        ) {
+            val stats = textStats(state.editorContent)
+            Text(
+                text = "${stats.words} kelime · ${stats.characters} karakter",
+                style = MaterialTheme.typography.labelSmall,
+                color = EchoColors.textSecondary.copy(alpha = 0.7f),
+                modifier = Modifier.weight(1f),
+            )
+            val age = relativeTime(state.selectedNote?.updatedAt.orEmpty())
+            if (age.isNotEmpty()) {
+                Text(
+                    text = age,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = EchoColors.textSecondary.copy(alpha = 0.7f),
+                )
+            }
+        }
+
         HorizontalDivider(
-            color = EchoColors.GlassBorder,
+            color = EchoColors.glassBorder,
             modifier = Modifier.padding(bottom = 12.dp),
         )
 
@@ -168,7 +234,8 @@ private fun MarkdownEditor(
     onContentChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val markdownTransformation = remember { MarkdownTransformation(echoMarkdownColors()) }
+    val colors = echoMarkdownColors()
+    val markdownTransformation = remember(colors) { MarkdownTransformation(colors) }
 
     BasicTextField(
         value = content,
@@ -178,9 +245,9 @@ private fun MarkdownEditor(
         textStyle = TextStyle(
             fontSize = 15.sp,
             lineHeight = 24.sp,
-            color = EchoColors.TextPrimary,
+            color = EchoColors.textPrimary,
         ),
-        cursorBrush = SolidColor(EchoColors.NeonCyan),
+        cursorBrush = SolidColor(EchoColors.neonCyan),
         // Dıştan Modifier.verticalScroll SARILMAZ: BasicTextField sınırlı yükseklik
         // verildiğinde kendi içinde kaydırır ve imleci takip eder. Dış scroll bu
         // davranışı bastırıyordu — imleç satır sonuna inince ekrandan kayboluyordu.
@@ -202,11 +269,11 @@ private fun StreamingBanner() {
         Text(
             text = "▍AI yazıyor…",
             style = MaterialTheme.typography.labelMedium,
-            color = EchoColors.NeonCyan,
+            color = EchoColors.neonCyan,
             modifier = Modifier.alpha(alpha).padding(bottom = 4.dp),
         )
         LinearProgressIndicator(
-            color = EchoColors.NeonCyan,
+            color = EchoColors.neonCyan,
             trackColor = Color.White.copy(alpha = 0.08f),
             modifier = Modifier.fillMaxWidth(),
         )

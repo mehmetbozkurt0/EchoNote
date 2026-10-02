@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Yedeklemeden NELERİ dışladığımız ve nedeni:
+
+    - echonote.db  : notların tek gerçek kaynağı Supabase; yerel kopya yalnızca bu
+                     cihazın önbelleği. Yedekten başka bir cihaza taşınırsa senkron
+                     motoru oradaki satırları "yerel değişiklik" sanıp karıştırabilir.
+    - *_preferences: oturum anahtarı ve Gemini API anahtarı burada. Kimlik bilgisi
+                     bulut yedeğine gitmemeli; yeni cihazda yeniden giriş yapılır.
+-->
+<full-backup-content>
+    <exclude domain="database" path="echonote.db" />
+    <exclude domain="database" path="echonote.db-journal" />
+    <exclude domain="sharedpref" path="com.echonote.echonote_preferences.xml" />
+</full-backup-content>

@@ -26,6 +26,7 @@ class FakeNotesRepository : NotesRepository {
     val saved = mutableListOf<Note>()
     val deleted = mutableListOf<String>()
     val restored = mutableListOf<String>()
+    val pinnedCalls = mutableListOf<Pair<String, Boolean>>()
     val deletedForever = mutableListOf<String>()
     var flushCount = 0
         private set
@@ -62,6 +63,10 @@ class FakeNotesRepository : NotesRepository {
 
     override fun restoreNote(id: String) {
         restored += id
+    }
+
+    override fun setPinned(id: String, pinned: Boolean) {
+        pinnedCalls += id to pinned
     }
 
     override fun deleteForever(id: String) {

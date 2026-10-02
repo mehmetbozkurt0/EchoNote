@@ -91,6 +91,10 @@ class OfflineFirstNotesRepository(
         mutations.trySend(Mutation.Restore(id))
     }
 
+    override fun setPinned(id: String, pinned: Boolean) {
+        mutations.trySend(Mutation.Pin(id, pinned))
+    }
+
     override fun deleteForever(id: String) {
         mutations.trySend(Mutation.Delete(id))
     }
@@ -117,6 +121,7 @@ class OfflineFirstNotesRepository(
                         local.moveToTrash(id = mutation.id, deletedAt = now, updatedAt = now)
                     }
                     is Mutation.Restore -> local.restoreFromTrash(mutation.id, nowIsoUtc())
+                    is Mutation.Pin -> local.setPinned(mutation.id, mutation.pinned, nowIsoUtc())
                     is Mutation.PurgeOldTrash -> purgeOldTrash()
                     is Mutation.ApplyRemote -> applyRemote(mutation.notes)
                     is Mutation.ClearDirty ->
@@ -250,6 +255,7 @@ class OfflineFirstNotesRepository(
         data class Delete(val id: String) : Mutation
         data class Trash(val id: String) : Mutation
         data class Restore(val id: String) : Mutation
+        data class Pin(val id: String, val pinned: Boolean) : Mutation
         data object PurgeOldTrash : Mutation
         data class ApplyRemote(val notes: List<Note>) : Mutation
         data class ClearDirty(val id: String, val sentUpdatedAt: String) : Mutation

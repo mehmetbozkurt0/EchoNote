@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import kotlin.time.ExperimentalTime
 import com.echonote.echonote.db.Note as DbNote
 
@@ -42,7 +43,7 @@ class NotesLocalStore(
      * tipine doğrudan çevirerek o ara tipi hiç kullanmıyoruz.
      */
     fun observeTrashed(): Flow<List<Note>> =
-        queries.selectTrashed { id, title, content, updatedAt, deviceId, _, _, deletedAt ->
+        queries.selectTrashed { id, title, content, updatedAt, deviceId, _, _, deletedAt, tags, pinned ->
             Note(
                 id = id,
                 title = title,
@@ -50,6 +51,8 @@ class NotesLocalStore(
                 updatedAt = updatedAt,
                 deviceId = deviceId,
                 deletedAt = deletedAt,
+                tags = decodeTags(tags),
+                pinned = pinned,
             )
         }.asFlow().mapToList(dispatcher)
 
@@ -99,6 +102,8 @@ class NotesLocalStore(
                     dirty = true,
                     pending_delete = false,
                     deleted_at = note.deletedAt,
+                    tags = encodeTags(note.tags),
+                    pinned = note.pinned,
                 )
             } else {
                 queries.updateNoteRow(
@@ -108,6 +113,8 @@ class NotesLocalStore(
                     device_id = note.deviceId,
                     dirty = true,
                     deleted_at = note.deletedAt,
+                    tags = encodeTags(note.tags),
+                    pinned = note.pinned,
                     id = note.id,
                 )
             }
@@ -143,6 +150,8 @@ class NotesLocalStore(
                     dirty = false,
                     pending_delete = false,
                     deleted_at = note.deletedAt,
+                    tags = encodeTags(note.tags),
+                    pinned = note.pinned,
                 )
                 true -> queries.updateNoteRow(
                     title = note.title,
@@ -151,6 +160,8 @@ class NotesLocalStore(
                     device_id = note.deviceId,
                     dirty = false,
                     deleted_at = note.deletedAt,
+                    tags = encodeTags(note.tags),
+                    pinned = note.pinned,
                     id = note.id,
                 )
                 false -> Unit // yerel kazandı
@@ -170,6 +181,11 @@ class NotesLocalStore(
     suspend fun restoreFromTrash(id: String, updatedAt: String): Unit = withContext(dispatcher) {
         queries.restoreFromTrash(updated_at = updatedAt, id = id)
     }
+
+    suspend fun setPinned(id: String, pinned: Boolean, updatedAt: String): Unit =
+        withContext(dispatcher) {
+            queries.setPinned(pinned = pinned, updated_at = updatedAt, id = id)
+        }
 
     /** Çöpte [before] tarihinden eski notların kimlikleri (otomatik temizlik için). */
     suspend fun trashedBefore(before: String): List<String> = withContext(dispatcher) {
@@ -225,4 +241,15 @@ private fun DbNote.toDomain() = Note(
     updatedAt = updated_at,
     deviceId = device_id,
     deletedAt = deleted_at,
+    tags = decodeTags(tags),
+    pinned = pinned,
 )
+
+/**
+ * Etiketler SQLite'ta JSON metni olarak duruyor (Supabase'de jsonb). Bozuk/boş değerde
+ * patlamak yerine boş listeye düşüyoruz: tek bir bozuk satır listeyi kilitlemesin.
+ */
+internal fun encodeTags(tags: List<String>): String = Json.encodeToString(tags)
+
+internal fun decodeTags(raw: String): List<String> =
+    runCatching { Json.decodeFromString<List<String>>(raw) }.getOrDefault(emptyList())

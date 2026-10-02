@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +41,7 @@ fun MarkdownView(
     onToggleTask: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = remember { echoMarkdownColors() }
+    val colors = echoMarkdownColors()
     val blocks = remember(content) { parseMarkdown(content) }
 
     Column(
@@ -54,7 +55,7 @@ fun MarkdownView(
                     style = TextStyle(
                         fontSize = headingSize(block.level),
                         fontWeight = FontWeight.Bold,
-                        color = EchoColors.NeonCyan,
+                        color = EchoColors.neonCyan,
                         lineHeight = headingSize(block.level) * 1.3f,
                     ),
                     modifier = Modifier.padding(top = if (block.level <= 2) 8.dp else 4.dp),
@@ -68,7 +69,7 @@ fun MarkdownView(
                 is MdBlock.Bullet -> Row {
                     Text(
                         text = block.marker,
-                        style = bodyStyle.copy(color = EchoColors.TextSecondary),
+                        style = bodyStyle.copy(color = EchoColors.textSecondary),
                         modifier = Modifier.width(26.dp),
                     )
                     Text(text = renderInline(block.text, colors), style = bodyStyle)
@@ -89,12 +90,12 @@ fun MarkdownView(
                         Modifier
                             .width(3.dp)
                             .height(22.dp)
-                            .background(EchoColors.NeonLavender.copy(alpha = 0.7f)),
+                            .background(EchoColors.neonLavender.copy(alpha = 0.7f)),
                     )
                     Text(
                         text = renderInline(block.text, colors),
                         style = bodyStyle.copy(
-                            color = EchoColors.NeonLavender,
+                            color = EchoColors.neonLavender,
                             fontStyle = FontStyle.Italic,
                         ),
                         modifier = Modifier.padding(start = 12.dp),
@@ -120,7 +121,7 @@ fun MarkdownView(
                     Modifier
                         .fillMaxWidth()
                         .height(1.dp)
-                        .background(EchoColors.GlassBorder)
+                        .background(EchoColors.glassBorder)
                         .padding(vertical = 6.dp),
                 )
             }
@@ -142,22 +143,22 @@ private fun TaskRow(block: MdBlock.Task, colors: MarkdownColors, onToggle: () ->
             Modifier
                 .size(18.dp)
                 .clip(RoundedCornerShape(5.dp))
-                .background(if (block.checked) EchoColors.NeonMint.copy(alpha = 0.25f) else Color.Transparent)
+                .background(if (block.checked) EchoColors.neonMint.copy(alpha = 0.25f) else Color.Transparent)
                 .border(
                     width = 1.5.dp,
-                    color = if (block.checked) EchoColors.NeonMint else EchoColors.TextSecondary,
+                    color = if (block.checked) EchoColors.neonMint else EchoColors.textSecondary,
                     shape = RoundedCornerShape(5.dp),
                 ),
             contentAlignment = Alignment.Center,
         ) {
             if (block.checked) {
-                Text("✓", style = TextStyle(fontSize = 12.sp, color = EchoColors.NeonMint))
+                Text("✓", style = TextStyle(fontSize = 12.sp, color = EchoColors.neonMint))
             }
         }
         Text(
             text = renderInline(block.text, colors),
             style = if (block.checked) {
-                bodyStyle.copy(color = EchoColors.TextSecondary)
+                bodyStyle.copy(color = EchoColors.textSecondary)
             } else {
                 bodyStyle
             },
@@ -166,11 +167,13 @@ private fun TaskRow(block: MdBlock.Task, colors: MarkdownColors, onToggle: () ->
     }
 }
 
-private val bodyStyle = TextStyle(
-    fontSize = 15.sp,
-    lineHeight = 24.sp,
-    color = EchoColors.TextPrimary,
-)
+/** Gövde metni stili; renk temadan geldiği için composable. */
+private val bodyStyle: TextStyle
+    @Composable @ReadOnlyComposable get() = TextStyle(
+        fontSize = 15.sp,
+        lineHeight = 24.sp,
+        color = LocalEchoPalette.current.textPrimary,
+    )
 
 private fun headingSize(level: Int) = when (level) {
     1 -> 24.sp

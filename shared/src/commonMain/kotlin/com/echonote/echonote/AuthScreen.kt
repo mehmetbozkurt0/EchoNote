@@ -75,12 +75,12 @@ fun AuthScreen(
                 text = "EchoNote",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                color = EchoColors.NeonCyan,
+                color = EchoColors.neonCyan,
             )
             Text(
                 text = "Notların hesabına bağlı ve yalnızca sana görünür.",
                 style = MaterialTheme.typography.bodySmall,
-                color = EchoColors.TextSecondary,
+                color = EchoColors.textSecondary,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
 
@@ -118,18 +118,18 @@ fun AuthScreen(
                 GlassButton(
                     text = "Giriş yap",
                     onClick = { onSignIn(email.trim(), password) },
-                    accent = EchoColors.NeonCyan,
+                    accent = EchoColors.neonCyan,
                     enabled = canSubmit,
                 )
                 GlassButton(
                     text = "Kayıt ol",
                     onClick = { onSignUp(email.trim(), password) },
-                    accent = EchoColors.NeonLavender,
+                    accent = EchoColors.neonLavender,
                     enabled = canSubmit,
                 )
                 if (state.busy) {
                     CircularProgressIndicator(
-                        color = EchoColors.NeonCyan,
+                        color = EchoColors.neonCyan,
                         strokeWidth = 2.dp,
                         modifier = Modifier.padding(start = 4.dp),
                     )
@@ -157,7 +157,7 @@ private fun AuthField(
             Text(
                 text = placeholder,
                 style = MaterialTheme.typography.bodyMedium,
-                color = EchoColors.TextSecondary.copy(alpha = 0.7f),
+                color = EchoColors.textSecondary.copy(alpha = 0.7f),
             )
         }
         BasicTextField(
@@ -166,8 +166,8 @@ private fun AuthField(
             singleLine = true,
             visualTransformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Next),
-            textStyle = TextStyle(color = EchoColors.TextPrimary, fontSize = 15.sp),
-            cursorBrush = SolidColor(EchoColors.NeonCyan),
+            textStyle = TextStyle(color = EchoColors.textPrimary, fontSize = 15.sp),
+            cursorBrush = SolidColor(EchoColors.neonCyan),
             modifier = Modifier.fillMaxWidth(),
         )
     }

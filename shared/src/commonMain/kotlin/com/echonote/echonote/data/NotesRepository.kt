@@ -47,6 +47,9 @@ interface NotesRepository {
 
     fun restoreNote(id: String)
 
+    /** Sabitleme listede sıralamayı değiştirir ve normal alan gibi senkronlanır. */
+    fun setPinned(id: String, pinned: Boolean)
+
     /** Kalıcı silme: uzaktan da gerçekten siler, geri dönüşü yoktur. */
     fun deleteForever(id: String)
 

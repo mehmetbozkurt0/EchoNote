@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- EchoColors.spaceBlack ile aynı; açılış zemini Compose'un çizdiğiyle eşleşsin. -->
+    <color name="echo_space_black">#FF05060E</color>
+</resources>
