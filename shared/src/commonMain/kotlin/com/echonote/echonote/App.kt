@@ -15,15 +15,23 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +45,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.echonote.echonote.data.auth.AuthGate
 import androidx.lifecycle.Lifecycle
@@ -66,7 +75,7 @@ fun App() {
         val sessionState by session.uiState.collectAsStateWithLifecycle()
         val activity = rememberActivityState()
 
-        MeshBackground(
+        EchoBackground(
             modifier = Modifier.trackActivity(activity),
             active = activity.isActive,
         ) {
@@ -95,7 +104,7 @@ fun App() {
 @Composable
 private fun BoxScope.LoadingGate() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = EchoColors.neonCyan, strokeWidth = 2.dp)
+        CircularProgressIndicator(color = EchoColors.primaryBright, strokeWidth = 2.dp)
     }
 }
 
@@ -110,17 +119,33 @@ private fun BoxScope.NotesApp(
     val geminiKey by AppServices.settings.geminiApiKey.collectAsStateWithLifecycle()
     val themeMode by AppServices.settings.themeMode.collectAsStateWithLifecycle()
     val fontScale by AppServices.settings.fontScale.collectAsStateWithLifecycle()
-    var settingsOpen by rememberSaveable { mutableStateOf(false) }
 
-    // Yazmak da etkileşimdir: fiziksel klavyeyle yazarken işaretçi olayı gelmez,
-    // bu olmadan arka plan kullanıcı yazarken duraklardı.
+    // Yazmak da etkileşimdir: fiziksel klavyeyle yazarken işaretçi olayı gelmez.
     LaunchedEffect(state.editorContent, state.selectedNoteId) { activity.touch() }
 
     val searchFocus = remember { FocusRequester() }
+    var tab by rememberSaveable { mutableStateOf(HomeTab.Notes) }
 
-    // Yazmalar artık anında yerel depoya indiği için burada kurtarılacak bir şey yok;
-    // arka plana düşerken bekleyen senkronu uzağa göndermeye çalışmak yine değerli.
+    // Yazmalar yerel depoya iniyor; arka plana düşerken bekleyen senkronu uzağa
+    // göndermeye çalışmak yine de değerli.
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.requestOutboxFlush() }
+
+    val settings: @Composable (Dp) -> Unit = { bottomPadding ->
+        SettingsPane(
+            accountEmail = accountEmail,
+            geminiApiKey = geminiKey,
+            onGeminiApiKeyChange = AppServices.settings::setGeminiApiKey,
+            themeMode = themeMode,
+            onThemeModeChange = AppServices.settings::setThemeMode,
+            fontScale = fontScale,
+            onFontScaleChange = AppServices.settings::setFontScale,
+            trashed = state.trashedNotes,
+            onRestore = viewModel::restoreFromTrash,
+            onDeleteForever = viewModel::deleteForever,
+            onSignOut = onSignOut,
+            bottomPadding = bottomPadding,
+        )
+    }
 
     // Insets kök yerine sayfa içeriklerine uygulanır: zeminler status bar'ın
     // arkasına taşar (edge-to-edge), yazılar ise güvenli alanda kalır.
@@ -129,19 +154,21 @@ private fun BoxScope.NotesApp(
             .fillMaxSize()
             .appShortcuts(
                 onNewNote = viewModel::createNote,
-                onFocusSearch = { runCatching { searchFocus.requestFocus() } },
+                onFocusSearch = {
+                    tab = HomeTab.Notes
+                    runCatching { searchFocus.requestFocus() }
+                },
                 onToggleRead = viewModel::toggleReadMode,
                 onEscape = {
-                    settingsOpen = false
-                    viewModel.closeTrash()
+                    tab = HomeTab.Notes
                     viewModel.clearSearch()
                 },
             )
     ) {
         if (maxWidth >= ExpandedWidthThreshold) {
-            ExpandedLayout(state, viewModel, searchFocus) { settingsOpen = true }
+            ExpandedLayout(state, viewModel, searchFocus, tab, { tab = it }, settings)
         } else {
-            CompactLayout(state, viewModel, searchFocus) { settingsOpen = true }
+            CompactLayout(state, viewModel, searchFocus, tab, { tab = it }, settings)
         }
     }
 
@@ -161,22 +188,6 @@ private fun BoxScope.NotesApp(
         )
     }
 
-    // Panel açıkken arkadaki listeye dokunuş geçmesin; boşluğa dokunmak kapatsın.
-    if (settingsOpen || state.trashOpen) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(EchoColors.spaceBlack.copy(alpha = 0.55f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                ) {
-                    settingsOpen = false
-                    viewModel.closeTrash()
-                }
-        )
-    }
-
     state.pendingDeleteNote?.let { note ->
         DeleteConfirmDialog(
             note = note,
@@ -184,132 +195,160 @@ private fun BoxScope.NotesApp(
             onDismiss = viewModel::cancelDelete,
         )
     }
-
-    AnimatedVisibility(
-        visible = state.trashOpen,
-        enter = fadeIn() + slideInVertically { it },
-        exit = fadeOut() + slideOutVertically { it },
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(16.dp),
-    ) {
-        TrashSheet(
-            trashed = state.trashedNotes,
-            onRestore = viewModel::restoreFromTrash,
-            onDeleteForever = viewModel::deleteForever,
-            onClose = viewModel::closeTrash,
-        )
-    }
-
-    AnimatedVisibility(
-        visible = settingsOpen,
-        enter = fadeIn() + slideInVertically { it },
-        exit = fadeOut() + slideOutVertically { it },
-        modifier = Modifier
-            .align(Alignment.BottomCenter)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(16.dp),
-    ) {
-        SettingsSheet(
-            accountEmail = accountEmail,
-            geminiApiKey = geminiKey,
-            onGeminiApiKeyChange = AppServices.settings::setGeminiApiKey,
-            trashCount = state.trashedNotes.size,
-            themeMode = themeMode,
-            onThemeModeChange = AppServices.settings::setThemeMode,
-            fontScale = fontScale,
-            onFontScaleChange = AppServices.settings::setFontScale,
-            onOpenTrash = {
-                settingsOpen = false
-                viewModel.openTrash()
-            },
-            onSignOut = {
-                settingsOpen = false
-                onSignOut()
-            },
-            onClose = { settingsOpen = false },
-        )
-    }
 }
 
-/** Desktop/Tablet: yan yana cam paneller. */
+/**
+ * Masaüstü: sol şerit (gezinme) + liste + editör. Tasarımın üç panelli düzeni.
+ *
+ * Alt gezinme çubuğu yerine sol şerit: fare ile çalışırken hedefler kenarda daha
+ * yakın ve geniş ekranda dikey alan değerli.
+ */
 @Composable
 private fun ExpandedLayout(
     state: NotesUiState,
     viewModel: NotesViewModel,
     searchFocus: FocusRequester,
-    onOpenSettings: () -> Unit,
+    tab: HomeTab,
+    onTabChange: (HomeTab) -> Unit,
+    settings: @Composable (Dp) -> Unit,
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(16.dp),
+            .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
-        NoteListPane(
-            state = state,
-            onSelect = viewModel::selectNote,
-            onCreate = viewModel::createNote,
-            onDelete = viewModel::requestDelete,
-            onOpenSettings = onOpenSettings,
-            onSearchChange = viewModel::updateSearchQuery,
-        onTagFilter = viewModel::setTagFilter,
-            onTogglePin = viewModel::togglePinned,
-            searchFocus = searchFocus,
-            modifier = Modifier.width(340.dp).fillMaxHeight(),
+        HomeSideRail(
+            current = tab,
+            onSelect = onTabChange,
+            onNewNote = viewModel::createNote,
+            sync = state.sync,
         )
-        NoteEditorPane(
-            state = state,
-            onContentChange = viewModel::updateContent,
-            onTitleChange = viewModel::updateTitle,
-            onExpand = viewModel::expandSelected,
-            onCondense = viewModel::condenseSelected,
-            onUndo = viewModel::undoSelected,
-            onStop = viewModel::stopStreaming,
-            onToggleTask = viewModel::toggleTask,
-            onAddTag = viewModel::addTag,
-            onRemoveTag = viewModel::removeTag,
-            onExport = viewModel::exportSelected,
-            onToggleReadMode = viewModel::toggleReadMode,
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-        )
+        VerticalHairline()
+
+        when (tab) {
+            HomeTab.Settings -> Box(Modifier.weight(1f).fillMaxHeight()) { settings(0.dp) }
+
+            HomeTab.Tags -> {
+                Box(Modifier.width(360.dp).fillMaxHeight()) {
+                    TagsPane(
+                        tagCounts = state.tagCounts,
+                        active = state.activeTag,
+                        onSelect = { tag ->
+                            viewModel.setTagFilter(tag)
+                            onTabChange(HomeTab.Notes)
+                        },
+                    )
+                }
+                VerticalHairline()
+                EditorPane(state, viewModel, Modifier.weight(1f).fillMaxHeight())
+            }
+
+            HomeTab.Notes -> {
+                NoteListPane(
+                    state = state,
+                    onSelect = viewModel::selectNote,
+                    onDelete = viewModel::requestDelete,
+                    onSearchChange = viewModel::updateSearchQuery,
+                    onTagFilter = viewModel::setTagFilter,
+                    onTogglePin = viewModel::togglePinned,
+                    onSortChange = viewModel::setSort,
+                    searchFocus = searchFocus,
+                    modifier = Modifier.width(360.dp).fillMaxHeight(),
+                )
+                VerticalHairline()
+                EditorPane(state, viewModel, Modifier.weight(1f).fillMaxHeight())
+            }
+        }
     }
 }
 
+@Composable
+private fun VerticalHairline() {
+    Box(Modifier.width(1.dp).fillMaxHeight().background(EchoColors.outline))
+}
 
-/** Mobil: tam ekran liste; seçimde editör sağdan kayarak üste gelir. */
+@Composable
+private fun EditorPane(state: NotesUiState, viewModel: NotesViewModel, modifier: Modifier) {
+    NoteEditorPane(
+        state = state,
+        onContentChange = viewModel::updateContent,
+        onTitleChange = viewModel::updateTitle,
+        onExpand = viewModel::expandSelected,
+        onCondense = viewModel::condenseSelected,
+        onUndo = viewModel::undoSelected,
+        onStop = viewModel::stopStreaming,
+        onToggleTask = viewModel::toggleTask,
+        onAddTag = viewModel::addTag,
+        onRemoveTag = viewModel::removeTag,
+        onExport = viewModel::exportSelected,
+        onToggleReadMode = viewModel::toggleReadMode,
+        onDelete = { state.selectedNoteId?.let(viewModel::requestDelete) },
+        modifier = modifier,
+    )
+}
+
+/**
+ * Mobil: başlık + sekmeli gövde + alt gezinme; sağ altta yeni not düğmesi.
+ * Not seçilince editör sağdan kayarak üste gelir.
+ */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun CompactLayout(
     state: NotesUiState,
     viewModel: NotesViewModel,
     searchFocus: FocusRequester,
-    onOpenSettings: () -> Unit,
+    tab: HomeTab,
+    onTabChange: (HomeTab) -> Unit,
+    settings: @Composable (Dp) -> Unit,
 ) {
     // rememberSaveable: ekran döndürüldüğünde editörden listeye fırlamamak için.
     var editorOpen by rememberSaveable { mutableStateOf(false) }
 
-    NoteListPane(
-        state = state,
-        onSelect = { id ->
-            viewModel.selectNote(id)
-            editorOpen = true
-        },
-        onCreate = {
-            viewModel.createNote()
-            editorOpen = true
-        },
-        onDelete = viewModel::requestDelete,
-        onOpenSettings = onOpenSettings,
-        onSearchChange = viewModel::updateSearchQuery,
-        onTagFilter = viewModel::setTagFilter,
-            onTogglePin = viewModel::togglePinned,
-            searchFocus = searchFocus,
-        framed = false,
-        modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
-    )
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        HomeHeader(state.sync)
+        Box(Modifier.weight(1f)) {
+            when (tab) {
+                HomeTab.Notes -> NoteListPane(
+                    state = state,
+                    onSelect = { id ->
+                        viewModel.selectNote(id)
+                        editorOpen = true
+                    },
+                    onDelete = viewModel::requestDelete,
+                    onSearchChange = viewModel::updateSearchQuery,
+                    onTagFilter = viewModel::setTagFilter,
+                    onTogglePin = viewModel::togglePinned,
+                    onSortChange = viewModel::setSort,
+                    searchFocus = searchFocus,
+                    bottomPadding = 72.dp,
+                )
+
+                HomeTab.Tags -> TagsPane(
+                    tagCounts = state.tagCounts,
+                    active = state.activeTag,
+                    onSelect = { tag ->
+                        viewModel.setTagFilter(tag)
+                        onTabChange(HomeTab.Notes)
+                    },
+                )
+
+                HomeTab.Settings -> settings(0.dp)
+            }
+
+            // Yeni not düğmesi yalnızca notlar sekmesinde: diğer sekmelerdeki bağlam
+            // gezinmek ya da ayar değiştirmek, yazmak değil.
+            if (tab == HomeTab.Notes) {
+                NewNoteFab(
+                    onClick = {
+                        viewModel.createNote()
+                        editorOpen = true
+                    },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 20.dp),
+                )
+            }
+        }
+        HomeBottomBar(current = tab, onSelect = onTabChange)
+    }
 
     AnimatedVisibility(
         visible = editorOpen,
@@ -318,7 +357,7 @@ private fun CompactLayout(
     ) {
         // Tam opak perde: alttaki liste hiçbir koşulda görünmez; zemin
         // status bar'ın arkasına kadar uzanır, içerik insets ile korunur.
-        Box(Modifier.fillMaxSize().background(EchoColors.spaceBlack)) {
+        Box(Modifier.fillMaxSize().background(EchoColors.canvas)) {
             NoteEditorPane(
                 state = state,
                 onContentChange = viewModel::updateContent,
@@ -334,7 +373,6 @@ private fun CompactLayout(
                 onToggleReadMode = viewModel::toggleReadMode,
                 onDelete = { state.selectedNoteId?.let(viewModel::requestDelete) },
                 onBack = { editorOpen = false },
-                framed = false,
                 modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
             )
         }

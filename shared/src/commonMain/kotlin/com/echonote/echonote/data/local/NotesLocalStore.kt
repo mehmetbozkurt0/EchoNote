@@ -145,6 +145,11 @@ class NotesLocalStore(
             val remoteWins = when {
                 existing == null -> null // ekleme yolu
                 existing.pending_delete -> false
+                // Bir satır için zaman geri gitmez. Bu olmadan **temiz** satır her uzak
+                // sürümle koşulsuz eziliyordu: push edilen yeni metin `ClearDirty` ile
+                // temiz olur olmaz, push'tan önce üretilmiş bayat bir anlık görüntü onu
+                // eski haline döndürüyordu. Sahada bir notun düzeltmesi böyle kayboldu.
+                isStrictlyNewer(existing.updated_at, note.updatedAt) -> false
                 !existing.dirty -> true
                 else -> isStrictlyNewer(note.updatedAt, existing.updated_at)
             }

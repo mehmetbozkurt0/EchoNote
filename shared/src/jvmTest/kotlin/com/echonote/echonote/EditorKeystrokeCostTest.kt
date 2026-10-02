@@ -81,9 +81,14 @@ class EditorKeystrokeCostTest {
 
             repeat(200) { oneKeystroke(text, caret) } // ısınma: JIT
 
-            val iterations = 300
-            val elapsed = measureTime { repeat(iterations) { oneKeystroke(text, caret) } }
-            val micros = elapsed.inWholeMicroseconds.toDouble() / iterations
+            // Turun **en iyisi** alınıyor, ortalaması değil. Bu bir tripwire; makine
+            // paralel bir derlemeyle meşgulken ortalama 3-4 katına çıkıp yanlış alarm
+            // veriyordu. En küçük ölçüm, dış yükten en az kirlenmiş olanıdır.
+            val iterations = 200
+            val micros = (1..5).minOf { _ ->
+                val elapsed = measureTime { repeat(iterations) { oneKeystroke(text, caret) } }
+                elapsed.inWholeMicroseconds.toDouble() / iterations
+            }
             sonuclar += text.length to micros
             println(
                 "[ÖLÇÜM] ${text.length} karakter → ${"%.0f".format(micros)} µs/tuş " +

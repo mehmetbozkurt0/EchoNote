@@ -50,6 +50,8 @@ kotlin {
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
             implementation(libs.compose.materialIconsCore)
+            // Tasarimdaki bicimlendirme/gezinme ikonlari core sette yok.
+            implementation(libs.compose.materialIconsExtended)
             implementation(libs.compose.ui)
             implementation(libs.compose.uiBackhandler)
             implementation(libs.compose.components.resources)

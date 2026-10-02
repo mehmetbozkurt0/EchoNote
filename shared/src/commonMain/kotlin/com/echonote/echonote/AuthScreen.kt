@@ -68,14 +68,14 @@ fun AuthScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier
                 .widthIn(max = 420.dp)
-                .glass(RoundedCornerShape(24.dp))
+                .echoSurface(RoundedCornerShape(24.dp))
                 .padding(24.dp),
         ) {
             Text(
                 text = "EchoNote",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                color = EchoColors.neonCyan,
+                color = EchoColors.primaryBright,
             )
             Text(
                 text = "Notların hesabına bağlı ve yalnızca sana görünür.",
@@ -115,21 +115,21 @@ fun AuthScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             ) {
-                GlassButton(
+                GhostButton(
                     text = "Giriş yap",
                     onClick = { onSignIn(email.trim(), password) },
-                    accent = EchoColors.neonCyan,
+                    accent = EchoColors.primaryBright,
                     enabled = canSubmit,
                 )
-                GlassButton(
+                GhostButton(
                     text = "Kayıt ol",
                     onClick = { onSignUp(email.trim(), password) },
-                    accent = EchoColors.neonLavender,
+                    accent = EchoColors.primary,
                     enabled = canSubmit,
                 )
                 if (state.busy) {
                     CircularProgressIndicator(
-                        color = EchoColors.neonCyan,
+                        color = EchoColors.primaryBright,
                         strokeWidth = 2.dp,
                         modifier = Modifier.padding(start = 4.dp),
                     )
@@ -150,7 +150,7 @@ private fun AuthField(
     Box(
         Modifier
             .fillMaxWidth()
-            .glass(RoundedCornerShape(14.dp))
+            .echoSurface(RoundedCornerShape(14.dp))
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         if (value.isEmpty()) {
@@ -167,7 +167,7 @@ private fun AuthField(
             visualTransformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None,
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Next),
             textStyle = TextStyle(color = EchoColors.textPrimary, fontSize = 15.sp),
-            cursorBrush = SolidColor(EchoColors.neonCyan),
+            cursorBrush = SolidColor(EchoColors.primaryBright),
             modifier = Modifier.fillMaxWidth(),
         )
     }

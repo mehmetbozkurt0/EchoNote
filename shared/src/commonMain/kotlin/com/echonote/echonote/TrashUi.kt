@@ -1,34 +1,22 @@
 package com.echonote.echonote
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import com.echonote.echonote.model.Note
 
 /**
- * Silme onayı. Silme artık geri alınabilir olduğu için ağır bir uyarı değil, kazayla
+ * Silme onayları.
+ *
+ * Çöp kutusunun kendi listesi artık burada değil: Ayarlar sayfasındaki "Çöp Kutusu"
+ * kartına taşındı ([SettingsPane]). Ayrı bir pencere olarak açılması, tasarımın "her
+ * şey tek bir ayarlar sayfasında" düzenine aykırıydı.
+ */
+
+/**
+ * Çöpe taşıma onayı. Silme geri alınabilir olduğu için ağır bir uyarı değil, kazayla
  * dokunmaya karşı hafif bir durak: metin nereye gittiğini de söylüyor.
  */
 @Composable
@@ -39,13 +27,13 @@ fun DeleteConfirmDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = EchoColors.spaceBlack.copy(alpha = 0.96f),
-        shape = RoundedCornerShape(20.dp),
+        containerColor = EchoColors.surfaceHigh,
+        shape = EchoShapes.sheet,
         title = {
             Text(
                 text = "Çöp kutusuna taşınsın mı?",
                 color = EchoColors.textPrimary,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.SemiBold,
             )
         },
         text = {
@@ -57,152 +45,45 @@ fun DeleteConfirmDialog(
             )
         },
         confirmButton = {
-            GlassButton(text = "Çöpe taşı", onClick = onConfirm, accent = EchoColors.neonRose)
+            GhostButton(text = "Çöpe taşı", onClick = onConfirm, accent = EchoColors.danger)
         },
         dismissButton = {
-            GlassButton(text = "Vazgeç", onClick = onDismiss, accent = EchoColors.textSecondary)
+            GhostButton(text = "Vazgeç", onClick = onDismiss)
         },
     )
 }
 
-/** Çöp kutusu: geri yükleme ve kalıcı silme. */
+/** Kalıcı silme onayı: geri dönüşü olmayan tek işlem, bu yüzden ikinci kez soruluyor. */
 @Composable
-fun TrashSheet(
-    trashed: List<Note>,
-    onRestore: (String) -> Unit,
-    onDeleteForever: (String) -> Unit,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier,
+fun DeleteForeverDialog(
+    note: Note,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
-    var confirmForever by remember { mutableStateOf<Note?>(null) }
-
-    Column(
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            // Cam katman %5 opak: tek basina altindaki liste icinden gecer ve panel
-            // okunmaz olur. Once koyu bir zemin, sonra cam.
-            .background(EchoColors.spaceBlack.copy(alpha = 0.94f), RoundedCornerShape(24.dp))
-            .glass(RoundedCornerShape(24.dp))
-            .padding(20.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = "Çöp kutusu",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = EchoColors.textPrimary,
-                )
-                Text(
-                    text = if (trashed.isEmpty()) "Boş" else "${trashed.size} not · 30 gün sonra kalıcı silinir",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = EchoColors.textSecondary,
-                )
-            }
-            GlassButton(text = "Kapat", onClick = onClose, accent = EchoColors.textSecondary)
-        }
-
-        HorizontalDivider(color = EchoColors.glassBorder)
-
-        if (trashed.isEmpty()) {
-            Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "Sildiğin notlar burada 30 gün bekler",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = EchoColors.textSecondary,
-                )
-            }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.heightIn(max = 360.dp),
-            ) {
-                items(trashed, key = { it.id }) { note ->
-                    TrashRow(
-                        note = note,
-                        onRestore = { onRestore(note.id) },
-                        onDeleteForever = { confirmForever = note },
-                    )
-                }
-            }
-        }
-    }
-
-    confirmForever?.let { note ->
-        AlertDialog(
-            onDismissRequest = { confirmForever = null },
-            containerColor = EchoColors.spaceBlack.copy(alpha = 0.96f),
-            shape = RoundedCornerShape(20.dp),
-            title = {
-                Text("Kalıcı olarak silinsin mi?", color = EchoColors.neonRose, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Text(
-                    text = "\"${note.title.ifBlank { "Adsız not" }}\" tüm cihazlardan kalıcı olarak " +
-                        "silinecek. Bu işlemin geri dönüşü yok.",
-                    color = EchoColors.textSecondary,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            },
-            confirmButton = {
-                GlassButton(
-                    text = "Kalıcı sil",
-                    onClick = {
-                        onDeleteForever(note.id)
-                        confirmForever = null
-                    },
-                    accent = EchoColors.neonRose,
-                )
-            },
-            dismissButton = {
-                GlassButton(text = "Vazgeç", onClick = { confirmForever = null }, accent = EchoColors.textSecondary)
-            },
-        )
-    }
-}
-
-@Composable
-private fun TrashRow(note: Note, onRestore: () -> Unit, onDeleteForever: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .glass(RoundedCornerShape(16.dp), fill = EchoColors.glassFill)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-    ) {
-        Text(
-            text = note.title.ifBlank { "Adsız not" },
-            style = MaterialTheme.typography.titleSmall,
-            color = EchoColors.textPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(top = 8.dp),
-        ) {
-            GlassButton(text = "Geri yükle", onClick = onRestore, accent = EchoColors.neonMint)
-            GlassButton(text = "Kalıcı sil", onClick = onDeleteForever, accent = EchoColors.neonRose)
-        }
-    }
-}
-
-/** Ayarlar sheet'inden çöp kutusunu açan satır. */
-@Composable
-fun TrashEntryRow(count: Int, onOpen: () -> Unit, modifier: Modifier = Modifier) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier.fillMaxWidth()) {
-        Column(Modifier.weight(1f)) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = EchoColors.surfaceHigh,
+        shape = EchoShapes.sheet,
+        title = {
             Text(
-                text = "Çöp kutusu",
-                style = MaterialTheme.typography.bodyMedium,
-                color = EchoColors.textPrimary,
+                text = "Kalıcı olarak silinsin mi?",
+                color = EchoColors.danger,
+                fontWeight = FontWeight.SemiBold,
             )
+        },
+        text = {
             Text(
-                text = if (count == 0) "Boş" else "$count not",
-                style = MaterialTheme.typography.labelSmall,
+                text = "\"${note.title.ifBlank { "Adsız not" }}\" tüm cihazlardan kalıcı olarak " +
+                    "silinecek. Bu işlemin geri dönüşü yok.",
                 color = EchoColors.textSecondary,
+                style = MaterialTheme.typography.bodyMedium,
             )
-        }
-        GlassButton(text = "Aç", onClick = onOpen, accent = EchoColors.neonLavender)
-    }
+        },
+        confirmButton = {
+            GhostButton(text = "Kalıcı sil", onClick = onConfirm, accent = EchoColors.danger)
+        },
+        dismissButton = {
+            GhostButton(text = "Vazgeç", onClick = onDismiss)
+        },
+    )
 }

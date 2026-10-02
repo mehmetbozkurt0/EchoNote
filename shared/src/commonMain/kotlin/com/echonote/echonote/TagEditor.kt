@@ -51,9 +51,9 @@ fun TagRow(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .glass(
+                    .echoSurface(
                         shape = RoundedCornerShape(50),
-                        fill = EchoColors.neonLavender.copy(alpha = 0.14f),
+                        fill = EchoColors.primary.copy(alpha = 0.14f),
                     )
                     .clickable { onRemove(tag) }
                     .padding(horizontal = 10.dp, vertical = 5.dp),
@@ -61,12 +61,12 @@ fun TagRow(
                 Text(
                     text = "#$tag",
                     style = MaterialTheme.typography.labelSmall,
-                    color = EchoColors.neonLavender,
+                    color = EchoColors.primary,
                 )
                 Text(
                     text = "  ×",
                     style = MaterialTheme.typography.labelSmall,
-                    color = EchoColors.neonLavender.copy(alpha = 0.7f),
+                    color = EchoColors.primary.copy(alpha = 0.7f),
                 )
             }
         }
@@ -74,7 +74,7 @@ fun TagRow(
         Box(
             Modifier
                 .widthIn(min = 96.dp)
-                .glass(RoundedCornerShape(50))
+                .echoSurface(RoundedCornerShape(50))
                 .padding(horizontal = 10.dp, vertical = 5.dp),
         ) {
             if (draft.isEmpty()) {
@@ -96,7 +96,7 @@ fun TagRow(
                     }
                 ),
                 textStyle = TextStyle(color = EchoColors.textPrimary, fontSize = 12.sp),
-                cursorBrush = SolidColor(EchoColors.neonLavender),
+                cursorBrush = SolidColor(EchoColors.primary),
                 modifier = Modifier.fillMaxWidth(),
             )
         }

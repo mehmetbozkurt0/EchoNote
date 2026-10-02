@@ -23,6 +23,12 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** Liste sıralaması. Sabitlenenler her iki durumda da üstte kalır. */
+enum class NoteSort(val label: String) {
+    Recent("Son Düzenlenen"),
+    Title("Başlığa Göre"),
+}
+
 data class NotesUiState(
     /** Yerel depodan türetilir; sıralama ve birleştirme veri katmanında yapılmıştır. */
     val notes: List<Note> = emptyList(),
@@ -51,6 +57,8 @@ data class NotesUiState(
     val errorMessage: String? = null,
     /** Depodan ilk yayın geldi mi. False iken liste "boş" değil "henüz bilinmiyor". */
     val loaded: Boolean = false,
+    /** Liste sıralaması; veri katmanı sabitli-önce + son düzenlenen döndürür. */
+    val sort: NoteSort = NoteSort.Recent,
 ) {
     /**
      * Listede gösterilecek notlar. `val` olarak hesaplanır (get() değil): sorgu ya da
@@ -67,8 +75,28 @@ data class NotesUiState(
             }
         }
 
+        .let { list ->
+            when (sort) {
+                // Depo zaten sabitli-önce + son düzenlenen döndürüyor; dokunma.
+                NoteSort.Recent -> list
+                NoteSort.Title -> list.sortedWith(
+                    compareByDescending<Note> { it.pinned }.thenBy { it.title.searchKey() }
+                )
+            }
+        }
+
+    /** Tasarımdaki "Sabitlenenler" bölümü. */
+    val pinnedNotes: List<Note> = visibleNotes.filter { it.pinned }
+
+    /** Tasarımdaki "Tüm Notlar" bölümü. */
+    val otherNotes: List<Note> = visibleNotes.filterNot { it.pinned }
+
     /** Filtre çubuğu için kullanılan tüm etiketler. */
     val allTags: List<String> = notes.flatMap { it.tags }.distinct().sorted()
+
+    /** Etiketler sekmesi: etiket → o etiketi taşıyan not sayısı. */
+    val tagCounts: List<Pair<String, Int>> =
+        notes.flatMap { it.tags }.groupingBy { it }.eachCount().toList().sortedBy { it.first }
 
     val selectedNote: Note? get() = notes.firstOrNull { it.id == selectedNoteId }
     val hasSelection: Boolean get() = selectedNoteId != null
@@ -193,6 +221,8 @@ class NotesViewModel(
         _uiState.update { it.copy(pendingDeleteNoteId = null) }
         moveToTrash(id)
     }
+
+    fun setSort(sort: NoteSort) = _uiState.update { it.copy(sort = sort) }
 
     fun toggleReadMode() = _uiState.update { it.copy(readMode = !it.readMode) }
 
@@ -430,12 +460,22 @@ class NotesViewModel(
         val state = _uiState.value
         val noteId = state.selectedNoteId ?: return
         val existing = state.selectedNote
+        val title = state.editorTitle.ifBlank { deriveTitle(state.editorContent) }
+
+        // Değişiklik yoksa yazma. Bu kontrol olmadan [onCleared] ve kapanış kancası,
+        // kullanıcı hiç dokunmamış olsa bile o an seçili notu yeniden yazıyordu:
+        // `updated_at` tazeleniyor, not listenin başına sıçrıyor ve sunucuya boş bir
+        // güncelleme gidiyordu. `updated_at` "son düzenlenme" demek, "son açılış" değil.
+        if (existing != null && existing.title == title && existing.content == state.editorContent) {
+            return
+        }
+
         repository.saveNote(
             Note(
                 id = noteId,
                 // Başlık elle yazılmadıysa içerikten türetilir; listede "Yeni Not"
                 // kalabalığının sebebi buydu.
-                title = state.editorTitle.ifBlank { deriveTitle(state.editorContent) },
+                title = title,
                 content = state.editorContent,
                 updatedAt = nowIsoUtc(),
                 deviceId = deviceId,

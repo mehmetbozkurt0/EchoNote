@@ -136,4 +136,38 @@ class PersistDebounceTest {
 
         assertEquals("- [x] madde", repo.saved.single().content)
     }
+
+    @Test
+    fun degisiklikYoksaYazilmaz() = runTest(dispatcher) {
+        // Uygulama kapanışı o an seçili notu yeniden yazıyordu: içerik aynı olsa bile
+        // updated_at tazeleniyor, not listenin başına sıçrıyor ve sunucuya boş bir
+        // güncelleme gidiyordu.
+        val repo = FakeNotesRepository()
+        val vm = hazirla(repo, note("a", content = "ayni"))
+        advanceUntilIdle()
+        vm.selectNote("a")
+        repo.saved.clear()
+
+        // Aynı metni yeniden "yazmak" bir değişiklik değil.
+        vm.updateContent("ayni")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertTrue(repo.saved.isEmpty(), "İçerik değişmediyse depoya yazılmamalı")
+    }
+
+    @Test
+    fun gercekDegisiklikYineYazilir() = runTest(dispatcher) {
+        val repo = FakeNotesRepository()
+        val vm = hazirla(repo, note("a", content = "ilk"))
+        advanceUntilIdle()
+        vm.selectNote("a")
+        repo.saved.clear()
+
+        vm.updateContent("ikinci")
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals("ikinci", repo.saved.single().content)
+    }
 }

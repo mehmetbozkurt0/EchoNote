@@ -44,9 +44,9 @@ fun SyncStatusChip(sync: SyncState, modifier: Modifier = Modifier) {
 
         ConnectionState.Reconnecting ->
             if (pending > 0) {
-                Triple("Çevrimdışı · $pending değişiklik bekliyor", EchoColors.neonRose, true)
+                Triple("Çevrimdışı · $pending değişiklik bekliyor", EchoColors.danger, true)
             } else {
-                Triple("Bağlantı yok — yeniden deneniyor", EchoColors.neonRose, true)
+                Triple("Bağlantı yok — yeniden deneniyor", EchoColors.danger, true)
             }
 
         ConnectionState.Connecting ->
@@ -54,9 +54,9 @@ fun SyncStatusChip(sync: SyncState, modifier: Modifier = Modifier) {
 
         ConnectionState.Live ->
             if (pending > 0) {
-                Triple("Kaydedildi · senkron bekliyor", EchoColors.neonLavender, true)
+                Triple("Kaydedildi · senkron bekliyor", EchoColors.primary, true)
             } else {
-                Triple("Senkron", EchoColors.neonMint, false)
+                Triple("Senkron", EchoColors.sync, false)
             }
     }
 
@@ -106,16 +106,16 @@ fun ErrorBanner(message: String, onDismiss: () -> Unit, modifier: Modifier = Mod
             .fillMaxWidth()
             // Kökte serbest duruyor: mesh zeminin üstünde okunabilir kalması için
             // önce koyu bir perde, sonra cam katman.
-            .background(EchoColors.spaceBlack.copy(alpha = 0.78f), RoundedCornerShape(16.dp))
-            .glass(shape = RoundedCornerShape(16.dp), fill = EchoColors.neonRose.copy(alpha = 0.12f))
+            .background(EchoColors.canvas.copy(alpha = 0.78f), RoundedCornerShape(16.dp))
+            .echoSurface(shape = RoundedCornerShape(16.dp), fill = EchoColors.danger.copy(alpha = 0.12f))
             .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
     ) {
         Text(
             text = message,
             style = MaterialTheme.typography.bodySmall,
-            color = EchoColors.neonRose,
+            color = EchoColors.danger,
             modifier = Modifier.weight(1f),
         )
-        GlassButton(text = "Kapat", onClick = onDismiss, accent = EchoColors.neonRose)
+        GhostButton(text = "Kapat", onClick = onDismiss, accent = EchoColors.danger)
     }
 }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.ExperimentalTime
@@ -130,5 +131,61 @@ class StaleSnapshotTest {
         advanceTimeBy(2_000)
 
         assertFalse("uzak" in repo.ids(), "Hiç push etmediğimiz satır normal silinmeli")
+    }
+
+    // --- Bayat anlik goruntunun ICERIK tarafi ---
+
+    /**
+     * Sahada yaşandı (2026-10-02): bir notun bozulan metni diske doğru haliyle yazıldı,
+     * uygulama açıldı ve düzeltme **sessizce kayboldu** — satır eski haline döndü.
+     *
+     * Dizilim: yerel kirli satır push edilir → `ClearDirty` satırı temiz yapar →
+     * push'tan **önce** üretilmiş bayat anlık görüntü gelir → `upsertFromRemote` temiz
+     * satırı koşulsuz ezer. Kullanıcının az önce yazdığı metin gider.
+     */
+    @Test
+    fun pushSonrasiBayatGoruntuIcerigiGeriAlmaz() = runTest {
+        val eski = testNote("a", content = "eski").copy(updatedAt = "2026-01-01T00:00:00Z")
+        val remote = FakeRemoteNotesSource(initial = listOf(eski))
+        val driver = inMemoryDriver()
+        // Kullanıcının yeni düzenlemesi: yerelde kirli ve daha yeni.
+        storeFor(driver).upsertLocal(
+            testNote("a", content = "yeni").copy(updatedAt = "2026-01-02T00:00:00Z")
+        )
+
+        val repo = repository(driver, remote)
+        advanceTimeBy(5_000)
+        assertTrue(remote.upserted.any { it.content == "yeni" }, "Yeni metin sunucuya gitmeli")
+
+        // Push'tan ÖNCE üretilmiş anlık görüntü şimdi geliyor.
+        remote.emitRemote(listOf(eski, sunucudaki))
+        advanceTimeBy(2_000)
+
+        assertEquals(
+            "yeni",
+            repo.observeNotes().first().first { it.id == "a" }.content,
+            "Bayat anlık görüntü, push edilmiş yeni metni geri almamalı",
+        )
+    }
+
+    /** Başka cihazın gerçekten daha yeni düzenlemesi yine uygulanmalı. */
+    @Test
+    fun gercektenYeniUzakSurumUygulanir() = runTest {
+        val remote = FakeRemoteNotesSource(initial = listOf(testNote("a", content = "ilk")))
+        val driver = inMemoryDriver()
+
+        val repo = repository(driver, remote)
+        advanceTimeBy(2_000)
+
+        remote.emitRemote(
+            listOf(testNote("a", content = "digerCihaz").copy(updatedAt = "2030-01-01T00:00:00Z"))
+        )
+        advanceTimeBy(2_000)
+
+        assertEquals(
+            "digerCihaz",
+            repo.observeNotes().first().first { it.id == "a" }.content,
+            "Daha yeni uzak sürüm uygulanmalı",
+        )
     }
 }

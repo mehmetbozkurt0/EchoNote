@@ -10,50 +10,64 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.echonote.echonote.model.relativeTime
 import com.echonote.echonote.model.textStats
-import androidx.compose.ui.unit.sp
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * Not düzenleyici.
+ *
+ * Tasarımın "Sanctuary" ilkesi: yazarken ekranda yalnızca gerekenler kalsın. Bu yüzden
+ * AI, geri al ve sil eylemleri üst bardaki "…" menüsüne çekildi — eskiden altı düğme
+ * metnin üstünde iki satır yer kaplıyordu.
+ */
 @Composable
 fun NoteEditorPane(
     state: NotesUiState,
@@ -71,16 +85,22 @@ fun NoteEditorPane(
     onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
-    /** false: mobil tam ekran sayfa — dış cam çerçeve yok, cam efekti butonlarda kalır. */
-    framed: Boolean = true,
 ) {
-    val container = if (framed) Modifier.glass(RoundedCornerShape(24.dp)) else Modifier
-
-    // Seçim üzerinden karar verilir, listede görünmesi beklenmez: yeni oluşturulan not
-    // DB akışıyla birkaç ms sonra listeye düşer, editör o anda açık olmalı.
     if (!state.hasSelection) {
-        Box(modifier.fillMaxSize().then(container), contentAlignment = Alignment.Center) {
-            Text("Bir not seç", color = EchoColors.textSecondary)
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "Bir not seç",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = EchoColors.textPrimary,
+                )
+                Text(
+                    text = "Soldaki listeden bir not aç ya da yenisini oluştur.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = EchoColors.textSecondary,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
         }
         return
     }
@@ -89,175 +109,370 @@ fun NoteEditorPane(
     val isStreamingAnywhere = state.streamingNoteId != null
     val readMode = state.readMode
 
-    Column(modifier.fillMaxSize().then(container).padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (onBack != null) {
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier.padding(end = 6.dp).size(48.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Listeye dön",
-                        tint = EchoColors.textPrimary,
-                    )
-                }
-            }
-            BasicTextField(
-                value = state.editorTitle,
-                onValueChange = onTitleChange,
-                singleLine = true,
-                textStyle = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = EchoColors.textPrimary,
-                ),
-                cursorBrush = SolidColor(EchoColors.neonCyan),
-                modifier = Modifier.weight(1f),
-            )
+    // Biçimlendirme çubuğu imleç konumunu bilmek zorunda; bu yüzden metin burada
+    // TextFieldValue olarak tutuluyor. ViewModel düz String tutmaya devam ediyor —
+    // seçim kalıcı bir durum değil, ekranın işi.
+    var field by remember(state.selectedNoteId) {
+        // İmleç başta: not açılınca kullanıcı yazdığının başını görmeli, editör
+        // metnin sonuna kaydırılmış halde açılmamalı.
+        mutableStateOf(TextFieldValue(state.editorContent, TextRange.Zero))
+    }
+    // İçerik dışarıdan değişti (AI akışı, geri al): alanı tazele. Kullanıcının kendi
+    // yazması zaten eşit olduğu için buraya düşmez, imleç zıplamaz.
+    LaunchedEffect(state.editorContent) {
+        if (state.editorContent != field.text) {
+            field = TextFieldValue(state.editorContent, TextRange(state.editorContent.length))
         }
+    }
 
-        // FlowRow: butonlar yataya sığmazsa ezilmek yerine alt satıra akar (mobil).
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-        ) {
-            GlassButton(
-                text = "AI Genişlet",
-                icon = Icons.Default.Star,
-                onClick = onExpand,
-                accent = EchoColors.neonCyan,
-                enabled = !isStreamingAnywhere,
-            )
-            GlassButton(
-                text = "AI Özetle",
-                icon = Icons.Default.List,
-                onClick = onCondense,
-                accent = EchoColors.neonLavender,
-                enabled = !isStreamingAnywhere,
-            )
-            GlassButton(
-                text = if (readMode) "Düzenle" else "Oku",
-                onClick = onToggleReadMode,
-                accent = EchoColors.textPrimary,
-            )
-            GlassButton(
-                text = "Dışa aktar",
-                onClick = onExport,
-                accent = EchoColors.textSecondary,
-                icon = Icons.Default.Share,
-            )
-            // Mobilde editör tam ekran; silmek için listeye dönmek gerekiyordu.
-            if (onDelete != null) {
-                GlassButton(
-                    text = "Sil",
-                    onClick = onDelete,
-                    accent = EchoColors.neonRose,
-                    icon = Icons.Default.Delete,
-                )
-            }
-            if (isStreamingHere) {
-                GlassButton(text = "Durdur", onClick = onStop, accent = EchoColors.neonRose)
-            } else {
-                GlassButton(
-                    text = "Geri Al",
-                    icon = Icons.Default.Refresh,
-                    onClick = onUndo,
-                    accent = EchoColors.neonMint,
-                    enabled = state.canUndo,
-                )
-            }
-        }
+    Column(modifier.fillMaxSize()) {
+        EditorTopBar(
+            title = state.editorTitle,
+            onTitleChange = onTitleChange,
+            onBack = onBack,
+            readMode = readMode,
+            onToggleReadMode = onToggleReadMode,
+            onExport = onExport,
+            onExpand = onExpand,
+            onCondense = onCondense,
+            onUndo = onUndo,
+            onStop = onStop,
+            onDelete = onDelete,
+            canUndo = state.canUndo,
+            isStreamingHere = isStreamingHere,
+            isStreamingAnywhere = isStreamingAnywhere,
+        )
+
+        EditorMetaRow(state)
+
+        TagRow(
+            tags = state.selectedNote?.tags.orEmpty(),
+            onAdd = onAddTag,
+            onRemove = onRemoveTag,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+        )
 
         AnimatedVisibility(
             visible = isStreamingHere,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically(),
         ) {
-            StreamingBanner()
+            StreamingBanner(Modifier.padding(horizontal = 20.dp))
         }
-
-        TagRow(
-            tags = state.selectedNote?.tags.orEmpty(),
-            onAdd = onAddTag,
-            onRemove = onRemoveTag,
-            modifier = Modifier.padding(bottom = 10.dp),
-        )
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
-        ) {
-            val stats = textStats(state.editorContent)
-            Text(
-                text = "${stats.words} kelime · ${stats.characters} karakter",
-                style = MaterialTheme.typography.labelSmall,
-                color = EchoColors.textSecondary.copy(alpha = 0.7f),
-                modifier = Modifier.weight(1f),
-            )
-            val age = relativeTime(state.selectedNote?.updatedAt.orEmpty())
-            if (age.isNotEmpty()) {
-                Text(
-                    text = age,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = EchoColors.textSecondary.copy(alpha = 0.7f),
-                )
-            }
-        }
-
-        HorizontalDivider(
-            color = EchoColors.glassBorder,
-            modifier = Modifier.padding(bottom = 12.dp),
-        )
 
         if (readMode && !isStreamingHere) {
+            ReadModeBar(onToggleReadMode = onToggleReadMode)
             MarkdownView(
                 content = state.editorContent,
                 onToggleTask = onToggleTask,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).padding(horizontal = 20.dp),
             )
         } else {
-            MarkdownEditor(
-                content = state.editorContent,
-                readOnly = isStreamingHere,
-                onContentChange = onContentChange,
-                modifier = Modifier.weight(1f),
+            // Yazma yüzeyi de okuma ölçüsüne uyar: geniş panelde satır ekran boyunca
+            // uzarsa göz satır başını kaybediyor. Dar ekranda bu sınır hiç devreye
+            // girmez, orada genişliği zaten ekran belirliyor.
+            Box(
+                Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                MarkdownEditor(
+                    value = field,
+                    readOnly = isStreamingHere,
+                    onValueChange = { updated ->
+                        field = updated
+                        if (updated.text != state.editorContent) onContentChange(updated.text)
+                    },
+                    modifier = Modifier.fillMaxSize().widthIn(max = ProseMeasure),
+                )
+            }
+            Box(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                MarkdownToolbar(
+                    enabled = !isStreamingHere,
+                    onAction = { action ->
+                        val updated = applyMarkdown(field, action)
+                        field = updated
+                        onContentChange(updated.text)
+                    },
+                    modifier = Modifier.widthIn(max = ProseMeasure),
+                )
+            }
+        }
+    }
+}
+
+/** Geri · başlık + kaydedildi · paylaş · oku · "…" */
+@Composable
+private fun EditorTopBar(
+    title: String,
+    onTitleChange: (String) -> Unit,
+    onBack: (() -> Unit)?,
+    readMode: Boolean,
+    onToggleReadMode: () -> Unit,
+    onExport: () -> Unit,
+    onExpand: () -> Unit,
+    onCondense: () -> Unit,
+    onUndo: () -> Unit,
+    onStop: () -> Unit,
+    onDelete: (() -> Unit)?,
+    canUndo: Boolean,
+    isStreamingHere: Boolean,
+    isStreamingAnywhere: Boolean,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 8.dp),
+    ) {
+        if (onBack != null) {
+            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Listeye dön",
+                    tint = EchoColors.textPrimary,
+                )
+            }
+        } else {
+            Spacer(Modifier.width(12.dp))
+        }
+        BasicTextField(
+            value = title,
+            onValueChange = onTitleChange,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.headlineSmall.copy(
+                fontWeight = FontWeight.SemiBold,
+                color = EchoColors.textPrimary,
+            ),
+            cursorBrush = SolidColor(EchoColors.primary),
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onExport, modifier = Modifier.size(44.dp)) {
+            Icon(
+                imageVector = Icons.Default.Share,
+                contentDescription = "Dışa aktar",
+                tint = EchoColors.textSecondary,
+                modifier = Modifier.size(19.dp),
             )
+        }
+        IconButton(onClick = onToggleReadMode, modifier = Modifier.size(44.dp)) {
+            Icon(
+                imageVector = Icons.Default.MenuBook,
+                contentDescription = if (readMode) "Düzenleyiciye dön" else "Okuma modu",
+                tint = if (readMode) EchoColors.primaryBright else EchoColors.textSecondary,
+                modifier = Modifier.size(19.dp),
+            )
+        }
+        EditorOverflowMenu(
+            onExpand = onExpand,
+            onCondense = onCondense,
+            onUndo = onUndo,
+            onStop = onStop,
+            onDelete = onDelete,
+            canUndo = canUndo,
+            isStreamingHere = isStreamingHere,
+            isStreamingAnywhere = isStreamingAnywhere,
+        )
+    }
+}
+
+@Composable
+private fun EditorOverflowMenu(
+    onExpand: () -> Unit,
+    onCondense: () -> Unit,
+    onUndo: () -> Unit,
+    onStop: () -> Unit,
+    onDelete: (() -> Unit)?,
+    canUndo: Boolean,
+    isStreamingHere: Boolean,
+    isStreamingAnywhere: Boolean,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }, modifier = Modifier.size(44.dp)) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = "Daha fazla",
+                tint = EchoColors.textSecondary,
+                modifier = Modifier.size(19.dp),
+            )
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            shape = EchoShapes.card,
+            containerColor = EchoColors.surfaceHigh,
+            border = BorderStroke(1.dp, EchoColors.outline),
+        ) {
+            if (isStreamingHere) {
+                MenuRow("Durdur", Icons.Default.Delete, EchoColors.danger) { open = false; onStop() }
+            } else {
+                MenuRow(
+                    text = "AI ile genişlet",
+                    icon = Icons.Default.AutoAwesome,
+                    tint = EchoColors.primaryBright,
+                    enabled = !isStreamingAnywhere,
+                ) { open = false; onExpand() }
+                MenuRow(
+                    text = "AI ile özetle",
+                    icon = Icons.AutoMirrored.Filled.List,
+                    tint = EchoColors.primary,
+                    enabled = !isStreamingAnywhere,
+                ) { open = false; onCondense() }
+                MenuRow(
+                    text = "Geri al",
+                    icon = Icons.Default.Undo,
+                    tint = EchoColors.textPrimary,
+                    enabled = canUndo,
+                ) { open = false; onUndo() }
+            }
+            if (onDelete != null) {
+                MenuRow("Çöp kutusuna taşı", Icons.Default.Delete, EchoColors.danger) {
+                    open = false
+                    onDelete()
+                }
+            }
         }
     }
 }
 
 @Composable
+private fun MenuRow(
+    text: String,
+    icon: ImageVector,
+    tint: androidx.compose.ui.graphics.Color,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val color = if (enabled) tint else EchoColors.textSecondary.copy(alpha = 0.4f)
+    DropdownMenuItem(
+        text = { Text(text, color = color) },
+        leadingIcon = {
+            Icon(imageVector = icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
+        },
+        enabled = enabled,
+        onClick = onClick,
+    )
+}
+
+/**
+ * Okuma modu çubuğu: düzenleyiciye dönüş ve yazı boyutu.
+ *
+ * Yazı boyutu Ayarlar'da da var ama okurken oraya gidip gelmek akışı bozuyor; tasarım
+ * da bu yüzden kontrolü okuma başlığına koymuş. İkisi aynı ayarı yazıyor.
+ */
+@Composable
+private fun ReadModeBar(onToggleReadMode: () -> Unit) {
+    val scale by AppServices.settings.fontScale.collectAsStateWithLifecycle()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+    ) {
+        GhostButton(
+            text = "Düzenleyici",
+            icon = Icons.Default.Edit,
+            onClick = onToggleReadMode,
+        )
+        Spacer(Modifier.weight(1f))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .echoSurface(EchoShapes.pill, fill = EchoColors.surfaceLow)
+                .padding(horizontal = 4.dp),
+        ) {
+            IconButton(
+                onClick = { AppServices.settings.setFontScale(scale - FONT_STEP) },
+                enabled = scale > MIN_FONT_SCALE,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Text(
+                    text = "A−",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (scale > MIN_FONT_SCALE) EchoColors.textPrimary
+                    else EchoColors.textSecondary.copy(alpha = 0.4f),
+                )
+            }
+            Text(
+                text = "%${(scale * 100).toInt()}",
+                style = MaterialTheme.typography.labelMedium,
+                color = EchoColors.textSecondary,
+            )
+            IconButton(
+                onClick = { AppServices.settings.setFontScale(scale + FONT_STEP) },
+                enabled = scale < MAX_FONT_SCALE,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Text(
+                    text = "A+",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (scale < MAX_FONT_SCALE) EchoColors.textPrimary
+                    else EchoColors.textSecondary.copy(alpha = 0.4f),
+                )
+            }
+        }
+    }
+}
+
+private const val FONT_STEP = 0.05f
+
+/** "kaydedildi · az önce" ve sağda kelime/karakter sayacı. */
+@Composable
+private fun EditorMetaRow(state: NotesUiState) {
+    val stats = textStats(state.editorContent)
+    val age = relativeTime(state.selectedNote?.updatedAt.orEmpty())
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+    ) {
+        Box(Modifier.size(6.dp).background(EchoColors.sync, EchoShapes.pill))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            // Tasarımda "otomatik kaydedildi" yazıyor; telefon genişliğinde sağdaki
+            // sayaçla birlikte sığmayıp kırpılıyordu. Yeşil nokta zaten "kaydedildi"yi
+            // anlatıyor, kelimeyi kısaltmak bilgiden bir şey eksiltmiyor.
+            text = if (age.isEmpty()) "kaydedildi" else "kaydedildi · $age",
+            style = MaterialTheme.typography.labelMedium,
+            color = EchoColors.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(end = 14.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            text = "${stats.words} kelime · ${stats.characters} karakter",
+            style = MaterialTheme.typography.labelMedium,
+            color = EchoColors.textSecondary.copy(alpha = 0.8f),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
 private fun MarkdownEditor(
-    content: String,
+    value: TextFieldValue,
     readOnly: Boolean,
-    onContentChange: (String) -> Unit,
+    onValueChange: (TextFieldValue) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = echoMarkdownColors()
     val markdownTransformation = remember(colors) { MarkdownTransformation(colors) }
 
     BasicTextField(
-        value = content,
-        onValueChange = onContentChange,
+        value = value,
+        onValueChange = onValueChange,
         readOnly = readOnly,
         visualTransformation = markdownTransformation,
-        textStyle = TextStyle(
-            fontSize = 15.sp,
-            lineHeight = 24.sp,
-            color = EchoColors.textPrimary,
-        ),
-        cursorBrush = SolidColor(EchoColors.neonCyan),
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = EchoColors.textPrimary),
+        cursorBrush = SolidColor(EchoColors.primary),
         // Dıştan Modifier.verticalScroll SARILMAZ: BasicTextField sınırlı yükseklik
         // verildiğinde kendi içinde kaydırır ve imleci takip eder. Dış scroll bu
         // davranışı bastırıyordu — imleç satır sonuna inince ekrandan kayboluyordu.
-        // (String aşırı yüklemesi scrollState parametresi almıyor; iç kaydırma tek yol.)
         modifier = modifier.fillMaxWidth(),
     )
 }
 
 @Composable
-private fun StreamingBanner() {
+private fun StreamingBanner(modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "streaming")
     val alpha by transition.animateFloat(
         initialValue = 0.4f,
@@ -265,16 +480,16 @@ private fun StreamingBanner() {
         animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
         label = "streamingAlpha",
     )
-    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+    Column(modifier.fillMaxWidth().padding(bottom = 12.dp)) {
         Text(
-            text = "▍AI yazıyor…",
+            text = "AI yazıyor…",
             style = MaterialTheme.typography.labelMedium,
-            color = EchoColors.neonCyan,
-            modifier = Modifier.alpha(alpha).padding(bottom = 4.dp),
+            color = EchoColors.primaryBright,
+            modifier = Modifier.alpha(alpha).padding(bottom = 6.dp),
         )
         LinearProgressIndicator(
-            color = EchoColors.neonCyan,
-            trackColor = Color.White.copy(alpha = 0.08f),
+            color = EchoColors.primary,
+            trackColor = EchoColors.surfaceHigh,
             modifier = Modifier.fillMaxWidth(),
         )
     }
